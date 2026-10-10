@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Braces, ExternalLink, QrCode, Download, FileImage, FileText, Image as ImageIcon, LayoutTemplate, Layers, Maximize2, Palette, PenLine, Redo2, RotateCcw, Stamp, Table2, Undo2, Upload, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Braces, ExternalLink, PenTool, QrCode, Trash2, Download, Image as ImageIcon, LayoutTemplate, Layers, Maximize2, Palette, PenLine, Redo2, RotateCcw, Stamp, Table2, Undo2, Upload, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Preview from "@/features/certmaker/components/Preview";
 import TemplatePicker from "@/features/certmaker/components/TemplatePicker";
@@ -10,7 +10,9 @@ import { DEFAULT_DATA, type CertData, type FontSet } from "@/features/certmaker/
 import { FONT_SETS } from "@/features/certmaker/lib/themes";
 import { REGION_LABELS } from "@/features/certmaker/lib/render";
 import { useHistory } from "@/features/certmaker/lib/history";
-import { batchExport, download, fileSafe, pdfBlob, pngBlob, type BatchFormat } from "@/features/certmaker/lib/exporter";
+import { batchExport, download, exportWith, fileSafe, type BatchFormat } from "@/features/certmaker/lib/exporter";
+import { DPI_MAX, DPI_MIN, PROFILES, clampDpi, pixelWidth, type ExportFormat, type ExportProfile } from "@/features/certmaker/lib/exporter-utils";
+import { applyKit, kitFrom, loadKits, saveKits, type BrandKit } from "@/features/certmaker/lib/brand";
 import { clearRegister, loadRegister, registerIssued, setRevoked, verifyUrl, type Issued } from "@/features/certmaker/lib/verify";
 import { BUILT_IN_VARS, certForRow, missingVariables, parseDataset } from "@/features/certmaker/lib/merge";
 
@@ -57,6 +59,12 @@ export default function CertificateMaker() {
   const [previewRow, setPreviewRow] = useState<number | null>(null);
   const [register, setRegister] = useState<Issued[]>([]);
   const [vUrl, setVUrl] = useState("");
+  const [kits, setKits] = useState<BrandKit[]>([]);
+  const [kitName, setKitName] = useState("");
+  const [profileId, setProfileId] = useState<ExportProfile["id"]>("print");
+  const [format, setFormat] = useState<ExportFormat>("pdf");
+  const [dpi, setDpi] = useState(300);
+  const [quality, setQuality] = useState(0.95);
   const lastField = useRef<TextKey>("body");
   const csvFile = useRef<HTMLInputElement>(null);
   const [fmt, setFmt] = useState<BatchFormat>("pdf-zip");
@@ -71,7 +79,7 @@ export default function CertificateMaker() {
     if (!storageReady) return;
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(KEY, JSON.stringify({ ...d, refBg: "", logo: d.logo.length < 400_000 ? d.logo : "" }));
+        localStorage.setItem(KEY, JSON.stringify({ ...d, refBg: "", logo: d.logo.length < 400_000 ? d.logo : "", sigImgs: d.sigImgs.map((x) => (x.length < 200_000 ? x : "")) }));
       } catch {
         /* ignore quota / private mode */
       }
@@ -91,6 +99,45 @@ export default function CertificateMaker() {
   const slug = fileSafe(shown.recipient) || "certificate";
   const varChoices = useMemo(() => [...new Set<string>([...BUILT_IN_VARS, ...ds.headers])], [ds.headers]);
   useEffect(() => setRegister(loadRegister()), [tab]);
+  useEffect(() => {
+    setKits(loadKits());
+    try {
+      const raw = JSON.parse(localStorage.getItem("certmaker:export:v1") ?? "null") as { profileId?: ExportProfile["id"]; format?: ExportFormat; dpi?: number; quality?: number } | null;
+      if (raw) {
+        if (raw.profileId) setProfileId(raw.profileId);
+        if (raw.format) setFormat(raw.format);
+        if (raw.dpi) setDpi(clampDpi(raw.dpi));
+        if (raw.quality) setQuality(Math.min(1, Math.max(0.5, raw.quality)));
+      }
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("certmaker:export:v1", JSON.stringify({ profileId, format, dpi, quality })); } catch { /* ignore */ }
+  }, [profileId, format, dpi, quality]);
+  const pickProfile = (p: ExportProfile) => { setProfileId(p.id); setFormat(p.format); setDpi(p.dpi); setQuality(p.quality); };
+  const tweak = (f: () => void) => { f(); setProfileId("custom"); };
+  const px = pixelWidth(d.paper, dpi);
+  const exportLabel = `${format === "jpeg" ? "JPEG" : format.toUpperCase()}${format === "pdf" || format === "jpeg" || format === "png" || format === "svg" ? ` · ${dpi} dpi` : ""}`;
+
+  function saveKit() {
+    const next = [...kits, kitFrom(d, kitName)].slice(-12);
+    if (!saveKits(next)) return setErr("Couldn't save the kit — browser storage is full or blocked. Try a smaller logo.");
+    setErr("");
+    setKits(next);
+    setKitName("");
+  }
+  function removeKit(id: string) {
+    const next = kits.filter((k) => k.id !== id);
+    saveKits(next);
+    setKits(next);
+  }
+  function onSigImg(i: number, file?: File) {
+    if (!file) return;
+    if (file.size > 1_500_000) return setErr("Signature image is over 1.5 MB — please use a smaller one.");
+    const r = new FileReader();
+    r.onload = () => setD((p) => ({ ...p, sigImgs: [0, 1].map((j) => (j === i ? String(r.result) : (p.sigImgs[j] ?? ""))) }));
+    r.readAsDataURL(file);
+  }
   useEffect(() => {
     let live = true;
     verifyUrl(shown).then((u) => live && setVUrl(u));
@@ -156,14 +203,21 @@ export default function CertificateMaker() {
   };
 
   const exportButtons = (
-    <>
-      <Button variant="certificate" size="certificate" type="button" className="btn btn-primary" disabled={!!busy} onClick={() => run("pdf", async () => { download(await pdfBlob(shown), `${slug}.pdf`); registerIssued([shown]); setRegister(loadRegister()); })}>
-        <FileText aria-hidden /> {busy === "pdf" ? "Preparing…" : "PDF"}
-      </Button>
-      <Button variant="certificate" size="certificate" type="button" className="btn" disabled={!!busy} onClick={() => run("png", async () => { download(await pngBlob(shown), `${slug}.png`); registerIssued([shown]); setRegister(loadRegister()); })}>
-        <FileImage aria-hidden /> {busy === "png" ? "Preparing…" : "PNG"}
-      </Button>
-    </>
+    <Button
+      variant="certificate"
+      size="certificate"
+      type="button"
+      className="btn btn-primary"
+      disabled={!!busy}
+      onClick={() => run("export", async () => {
+        const r = await exportWith(shown, { format, dpi, quality });
+        download(r.blob, `${slug}.${r.ext}`);
+        registerIssued([shown]);
+        setRegister(loadRegister());
+      })}
+    >
+      <Download aria-hidden /> {busy === "export" ? "Preparing…" : `Export ${exportLabel}`}
+    </Button>
   );
 
   return (
@@ -257,7 +311,32 @@ export default function CertificateMaker() {
 
             {tab === "branding" && (
               <>
-                <PanelHeading title="Branding" subtitle="Logo, seal and signatories." />
+                <PanelHeading title="Branding" subtitle="Save your organisation's identity once, reuse it in one click." />
+                <Group title={`Brand kits (${kits.length})`}>
+                  <div className="flex gap-2">
+                    <input aria-label="Kit name" className="field" placeholder="Kit name, e.g. Eye Institute" value={kitName} onChange={(e) => setKitName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveKit(); }} />
+                    <Button variant="certificate" size="certificate" type="button" className="btn btn-primary shrink-0" onClick={saveKit}>Save</Button>
+                  </div>
+                  {kits.length === 0 ? (
+                    <EmptyState icon={<Stamp className="size-5" aria-hidden />} title="No brand kits yet">Saves logo, seal, signatories, address, template, colour and fonts.</EmptyState>
+                  ) : (
+                    <ul className="grid gap-1.5">
+                      {kits.map((k) => (
+                        <li key={k.id} className="flex items-center gap-2 rounded-lg border border-line p-2">
+                          <span className="size-4 shrink-0 rounded-full border border-line" style={{ background: k.accent }} aria-hidden />
+                          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{k.name}</span>
+                          <Button variant="certificate" size="certificate" type="button" className="btn !px-2.5 !py-1 text-xs" onClick={() => setD((p) => applyKit(p, k))}>Apply</Button>
+                          <button type="button" className="tool" aria-label={`Delete kit ${k.name}`} onClick={() => removeKit(k.id)}><Trash2 aria-hidden /></button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="text-[11px] text-muted">Kits live in this browser. Cloud sync and team sharing are on the roadmap.</p>
+                </Group>
+                <Group title="Organisation">
+                  <Field label="Name" id="borg"><input id="borg" className="field" value={d.org} onChange={(e) => set("org", e.target.value)} /></Field>
+                  <Field label="Address" id="baddr" hint="Available as {{address}} in any text field."><textarea id="baddr" rows={2} className="field" value={d.address} onChange={(e) => set("address", e.target.value)} /></Field>
+                </Group>
                 <Group title="Logo">
                   <Field label="Upload (PNG / JPG / SVG)" id="logo">
                     <input id="logo" type="file" accept="image/*" className="field" onChange={(e) => onLogo(e.target.files?.[0])} />
@@ -280,6 +359,16 @@ export default function CertificateMaker() {
                     <div key={i} className="grid grid-cols-2 gap-3">
                       <Field label={`Signatory ${i + 1}`} id={`sn${i}`}><input id={`sn${i}`} className="field" value={s.name} onChange={(e) => setSig(i, "name", e.target.value)} /></Field>
                       <Field label="Role" id={`sr${i}`}><input id={`sr${i}`} className="field" value={s.role} onChange={(e) => setSig(i, "role", e.target.value)} /></Field>
+                      <div className="col-span-2 flex items-center gap-2">
+                        <label htmlFor={`si${i}`} className="btn cursor-pointer text-xs"><PenTool aria-hidden /> {d.sigImgs[i] ? "Replace" : "Add"} signature image</label>
+                        <input id={`si${i}`} type="file" accept="image/*" className="sr-only" onChange={(e) => { onSigImg(i, e.target.files?.[0]); e.target.value = ""; }} />
+                        {d.sigImgs[i] && (
+                          <>
+                            <img src={d.sigImgs[i]} alt={`Signature ${i + 1}`} className="h-8 max-w-[5rem] rounded border border-line bg-white object-contain" />
+                            <button type="button" className="text-xs text-brand underline" onClick={() => setD((p) => ({ ...p, sigImgs: p.sigImgs.map((x, j) => (j === i ? "" : x)) }))}>Remove</button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </Group>
@@ -331,10 +420,11 @@ export default function CertificateMaker() {
                   </p>
                 )}
 
-                <Field label="Output" id="fmt" hint="Certificate IDs count up from the ID in Content (CERT-2026-001, -002, …) unless your table has a certificate_id column.">
+                <Field label="Output" id="fmt" hint={`Uses the DPI and quality from Export (capped at 300 dpi for bulk). Certificate IDs count up from the ID in Content unless your table has a certificate_id column.`}>
                   <select id="fmt" className="field" value={fmt} onChange={(e) => setFmt(e.target.value as BatchFormat)}>
                     <option value="pdf-zip">Separate PDFs (.zip)</option>
                     <option value="png-zip">Separate PNG images (.zip)</option>
+                    <option value="jpeg-zip">Separate JPEG images (.zip)</option>
                     <option value="pdf-one">One combined PDF</option>
                   </select>
                 </Field>
@@ -342,7 +432,7 @@ export default function CertificateMaker() {
                   disabled={!!busy || rowCount === 0 || rowCount > MAX_BATCH}
                   onClick={() => run("batch", async () => {
                     const items = ds.rows.map((r, i) => certForRow(d, r, i));
-                    const r = await batchExport(items, fmt, (a, b) => setProgress([a, b]));
+                    const r = await batchExport(items, fmt, (a, b) => setProgress([a, b]), Math.min(dpi, 300), quality);
                     download(r.blob, r.filename);
                     registerIssued(items);
                     setRegister(loadRegister());
@@ -356,6 +446,33 @@ export default function CertificateMaker() {
             {tab === "export" && (
               <>
                 <PanelHeading title="Export" subtitle="Download the certificate you are editing." />
+                <div role="group" aria-label="Export profiles" className="grid gap-2">
+                  {PROFILES.map((p) => (
+                    <button key={p.id} type="button" aria-pressed={profileId === p.id} onClick={() => pickProfile(p)}
+                      className={`rounded-xl border px-3 py-2.5 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${profileId === p.id ? "border-brand bg-secondary ring-1 ring-brand" : "border-line hover:border-ink/40"}`}>
+                      <span className="block text-sm font-semibold">{p.label}</span>
+                      <span className="block text-xs text-muted">{p.hint}</span>
+                    </button>
+                  ))}
+                </div>
+                <Group title={profileId === "custom" ? "Custom settings" : "Fine-tune"} open={profileId === "custom"}>
+                  <Field label="Format" id="xfmt" hint={format === "svg" ? "SVG wraps the artwork as an image at true paper size. It is not editable vector text." : undefined}>
+                    <select id="xfmt" className="field" value={format} onChange={(e) => tweak(() => setFormat(e.target.value as ExportFormat))}>
+                      <option value="pdf">PDF</option>
+                      <option value="png">PNG (lossless)</option>
+                      <option value="jpeg">JPEG</option>
+                      <option value="svg">SVG (embeds image)</option>
+                    </select>
+                  </Field>
+                  <Field label={`Resolution — ${dpi} dpi`} id="xdpi" hint={`${px.toLocaleString()} px wide${px >= 8000 ? " (capped to protect device memory)" : ""}`}>
+                    <input id="xdpi" type="range" min={DPI_MIN} max={DPI_MAX} step={6} value={dpi} onChange={(e) => tweak(() => setDpi(clampDpi(Number(e.target.value))))} className="w-full accent-brand" />
+                  </Field>
+                  {(format === "pdf" || format === "jpeg") && (
+                    <Field label={`Quality — ${Math.round(quality * 100)}%`} id="xq">
+                      <input id="xq" type="range" min={50} max={100} step={5} value={Math.round(quality * 100)} onChange={(e) => tweak(() => setQuality(Number(e.target.value) / 100))} className="w-full accent-brand" />
+                    </Field>
+                  )}
+                </Group>
                 <div className="flex flex-wrap gap-2">{exportButtons}</div>
                 <p className="text-xs text-muted">Bulk downloads live under Variables.</p>
 

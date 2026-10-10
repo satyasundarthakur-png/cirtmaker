@@ -343,10 +343,13 @@ export async function drawCertificate(canvas: HTMLCanvasElement, d: CertData, wi
   // footer
   const sigY = H - 122;
   const xs = [W * 0.22, W * 0.78].map((x) => x + shift);
+  const sigJobs: { src: string; x: number; y: number }[] = [];
   d.sigs.slice(0, 2).forEach((s, i) => {
     if (!s.name && !s.role) return;
     const x = xs[i];
     if (x === undefined) return;
+    const sigSrc = d.sigImgs?.[i];
+    if (sigSrc) sigJobs.push({ src: sigSrc, x, y: sigY });
     c.strokeStyle = theme.ink;
     c.lineWidth = 1;
     c.beginPath();
@@ -356,6 +359,15 @@ export async function drawCertificate(canvas: HTMLCanvasElement, d: CertData, wi
     line(env, `sig${i}`, s.name, x, sigY + 24, { font: (z) => `700 ${z}px ${f.body}`, size: 19, minSize: 12, color: theme.ink, maxW: 220 });
     line(env, `sig${i}`, s.role, x, sigY + 44, { font: (z) => `${f.bodyWeight} ${z}px ${f.body}`, size: 15, minSize: 10, color: theme.muted, maxW: 220 });
   });
+  for (const j of sigJobs) {
+    try {
+      const img = await loadImg(j.src);
+      const s = Math.min(170 / img.width, 54 / img.height);
+      c.drawImage(img, j.x - (img.width * s) / 2, j.y - img.height * s - 3, img.width * s, img.height * s);
+    } catch {
+      /* ignore broken signature image */
+    }
+  }
   if (d.showSeal) {
     const sy = H - 150;
     const box: Box = { x: cx - 48, y: sy - 48, w: 96, h: 124 };

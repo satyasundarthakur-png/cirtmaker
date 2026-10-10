@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export function Field({ label, id, children, hint }: { label: string; id: string; children: ReactNode; hint?: string }) {
+export function Field({ label, id, children, hint }: { label: string; id: string; children: ReactNode; hint?: string | undefined }) {
   return (
     <div>
       <label htmlFor={id} className="label">{label}</label>

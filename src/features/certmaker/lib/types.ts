@@ -49,6 +49,8 @@ export interface CertData {
   colors: Record<string, string>; // per-element colour override: "#rrggbb" or "metal:<id>"
   fx: Record<string, Fx>; // per-element effects, keyed by element id
   clearInset: number; // how far in from the edge the original artwork is kept (image mode)
+  address: string; // organisation address (available as {{address}})
+  sigImgs: string[]; // optional signature images (data URLs), one per signatory
   qr: boolean; // print a verification QR code
   verifyBase: string; // verification site, "" = this site
   verifyEmbed: boolean; // embed the record in the link so it verifies without a server
@@ -85,6 +87,8 @@ export const DEFAULT_DATA: CertData = {
   clearInset: 70,
   fx: {},
   colors: {},
+  address: "",
+  sigImgs: ["", ""],
   qr: false,
   verifyBase: "",
   verifyEmbed: true,

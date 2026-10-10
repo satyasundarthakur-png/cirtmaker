@@ -16,7 +16,7 @@ export interface Dataset {
 }
 
 /** Variables every certificate understands, whether or not they appear in the CSV. */
-export const BUILT_IN_VARS = ["name", "course", "date", "score", "grade", "organization", "certificate_id"] as const;
+export const BUILT_IN_VARS = ["name", "course", "date", "score", "grade", "organization", "certificate_id", "address"] as const;
 
 const ALIASES: Record<string, string> = {
   recipient: "name",
@@ -144,7 +144,7 @@ export function missingVariables(d: CertData, ds: Dataset): string[] {
 /** Build the certificate for one row. Certificate IDs count up unless the row carries its own. */
 export function certForRow(base: CertData, row: Row, index: number): CertData {
   const certId = row.certificate_id || nextId(fill(base.certId, row), index);
-  const vars: Row = { organization: base.org, date: base.date, ...row, certificate_id: certId };
+  const vars: Row = { organization: base.org, date: base.date, address: base.address, ...row, certificate_id: certId };
   if (row.name) vars.name = row.name;
   const out: CertData = { ...base, certId };
   for (const k of TEXT_FIELDS) out[k] = fill(base[k], vars) as never;
