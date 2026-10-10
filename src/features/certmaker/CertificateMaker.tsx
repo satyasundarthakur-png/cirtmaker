@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Braces, ExternalLink, PenTool, QrCode, Trash2, Download, Image as ImageIcon, LayoutTemplate, Layers, Maximize2, Palette, PenLine, Redo2, RotateCcw, Stamp, Table2, Undo2, Upload, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import CloneFields from "@/features/certmaker/components/CloneFields";
 import Preview from "@/features/certmaker/components/Preview";
 import TemplatePicker from "@/features/certmaker/components/TemplatePicker";
 import ReferencePanel from "@/features/certmaker/components/ReferencePanel";
@@ -50,7 +52,7 @@ export default function CertificateMaker() {
       if (raw) {
         const saved = { ...DEFAULT_DATA, ...JSON.parse(raw) } as CertData;
         if (saved.template === "inspired" && !saved.custom) saved.template = "classic";
-        h.reset({ ...saved, fx: saved.fx ?? {}, colors: saved.colors ?? {}, refBg: "", bgMode: "recreate" });
+        h.reset({ ...saved, clone: null, fx: saved.fx ?? {}, colors: saved.colors ?? {}, refBg: "", bgMode: "recreate" });
       }
     } catch { /* storage unavailable */ }
     setStorageReady(true);
@@ -80,7 +82,7 @@ export default function CertificateMaker() {
     if (!storageReady) return;
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(KEY, JSON.stringify({ ...d, refBg: "", logo: d.logo.length < 400_000 ? d.logo : "", sigImgs: d.sigImgs.map((x) => (x.length < 200_000 ? x : "")) }));
+        localStorage.setItem(KEY, JSON.stringify({ ...d, clone: null, refBg: "", logo: d.logo.length < 400_000 ? d.logo : "", sigImgs: d.sigImgs.map((x) => (x.length < 200_000 ? x : "")) }));
       } catch {
         /* ignore quota / private mode */
       }
@@ -209,6 +211,17 @@ export default function CertificateMaker() {
     seal: { tab: "branding", input: "seal" },
   };
   const selectElement = (id: string | null) => {
+    if (d.cloneMode) {
+      setSel(id);
+      if (id) {
+        setTab("content");
+        window.setTimeout(() => {
+          const input = document.getElementById(id) as HTMLInputElement | null;
+          input?.focus();
+        }, 60);
+      }
+      return;
+    }
     if (id === "qr") { setSel(null); setTab("export"); return; }
     setSel(id);
     const target = id ? FIELD_FOR[id] : undefined;
@@ -226,7 +239,7 @@ export default function CertificateMaker() {
       size="certificate"
       type="button"
       className="btn btn-primary"
-      disabled={!!busy}
+      disabled={!!busy || (d.cloneMode && !d.clone)}
       onClick={() => run("export", async () => {
         const r = await exportWith(shown, { format, dpi, quality });
         download(r.blob, `${slug}.${r.ext}`);
@@ -271,7 +284,7 @@ export default function CertificateMaker() {
         <aside className="order-2 flex flex-col border-line bg-card lg:order-1 lg:w-[22.5rem] lg:shrink-0 lg:flex-row lg:border-r">
           <nav className="flex shrink-0 overflow-x-auto border-b border-line lg:flex-col lg:overflow-visible lg:border-b-0 lg:border-r" aria-label="Workspace sections">
             <div role="tablist" aria-orientation="vertical" className="flex lg:flex-col">
-              {TABS.map((t) => {
+              {TABS.filter((t) => !d.cloneMode || (t.id !== "branding" && t.id !== "colors")).map((t) => {
                 const on = tab === t.id;
                 const Icon = t.icon;
                 return (
@@ -294,17 +307,23 @@ export default function CertificateMaker() {
           </nav>
 
           <div id="side-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="grid min-w-0 flex-1 content-start gap-4 p-4 lg:overflow-y-auto">
+            <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
+              <label htmlFor="clone-mode" className="text-sm font-semibold">Clone Mode</label>
+              <Switch id="clone-mode" checked={d.cloneMode} onCheckedChange={(cloneMode) => { setD((p) => ({ ...p, cloneMode })); setSel(null); setTab("templates"); }} />
+            </div>
             {tab === "templates" && (
               <>
-                <PanelHeading title="Templates" subtitle="Pick a starting point. Everything stays editable." />
-                <TemplatePicker data={d} onPick={(id, accent) => setD((p) => ({ ...p, template: id, accent: id === "inspired" && p.custom ? p.custom.accent : accent, bgMode: id === "inspired" ? p.bgMode : "recreate" }))} />
-                <Group title="Match your own certificate" open={false}>
+                <PanelHeading title={d.cloneMode ? "Original certificate" : "Templates"} subtitle={d.cloneMode ? "Background locked" : "Pick a starting point. Everything stays editable."} />
+                {!d.cloneMode && <TemplatePicker data={d} onPick={(id, accent) => setD((p) => ({ ...p, template: id, accent: id === "inspired" && p.custom ? p.custom.accent : accent, bgMode: id === "inspired" ? p.bgMode : "recreate" }))} />}
+                <Group title={d.cloneMode ? "Original file" : "Match your own certificate"} open={d.cloneMode}>
                   <ReferencePanel data={d} setData={setD} />
                 </Group>
+                {d.cloneMode && d.clone && <Button variant="certificate" size="certificate" className="btn" onClick={() => setTab("content")}>Text fields</Button>}
               </>
             )}
 
-            {tab === "content" && (
+            {tab === "content" && d.cloneMode && <><PanelHeading title="Text fields" subtitle="Original certificate locked" /><CloneFields data={d} setData={setD} selected={sel} onSelect={setSel} /></>}
+            {tab === "content" && !d.cloneMode && (
               <>
                 <PanelHeading title="Content" subtitle="The words on the certificate." />
                 <Field label="Organisation" id="org"><input id="org" className="field" onFocus={focusKey("org")} value={d.org} onChange={(e) => set("org", e.target.value)} /></Field>
@@ -447,7 +466,7 @@ export default function CertificateMaker() {
                   </select>
                 </Field>
                 <Button variant="certificate" size="certificate" type="button" className="btn btn-primary"
-                  disabled={!!busy || rowCount === 0 || rowCount > MAX_BATCH}
+                  disabled={!!busy || rowCount === 0 || rowCount > MAX_BATCH || (d.cloneMode && !d.clone)}
                   onClick={() => run("batch", async () => {
                     const items = ds.rows.map((r, i) => certForRow(d, r, i));
                     const r = await batchExport(items, fmt, (a, b) => setProgress([a, b]), Math.min(dpi, 300), quality);
@@ -494,7 +513,7 @@ export default function CertificateMaker() {
                 <div className="flex flex-wrap gap-2">{exportButtons}</div>
                 <p className="text-xs text-muted">Bulk downloads live under Variables.</p>
 
-                <Group title="QR verification">
+                {!d.cloneMode && <Group title="QR verification">
                   <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={d.qr} onChange={(e) => set("qr", e.target.checked)} className="accent-brand" /> Print a QR code on the certificate</label>
                   <Field label="Verification site" id="vbase" hint="Leave empty to use this site. Use your own domain (e.g. verify.yourdomain.com) once it has a registry.">
                     <input id="vbase" className="field" placeholder="This site" value={d.verifyBase} onChange={(e) => set("verifyBase", e.target.value)} />
@@ -507,7 +526,7 @@ export default function CertificateMaker() {
                       <a href={vUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-brand underline"><ExternalLink className="size-3" aria-hidden /> Open verification page</a>
                     </div>
                   )}
-                </Group>
+                </Group>}
 
                 <Group title={`Issue register (${register.length})`} open={false}>
                   {register.length === 0 ? (
@@ -540,7 +559,7 @@ export default function CertificateMaker() {
         {/* canvas */}
         <main className="order-1 min-w-0 flex-1 lg:order-2 lg:overflow-auto" aria-label="Certificate canvas">
           <div className="checker min-h-[40vh] p-4 sm:p-8 lg:min-h-full">
-            <Preview data={shown} selected={sel} onSelect={selectElement} zoom={zoom} />
+             {d.cloneMode && !d.clone ? <div className="grid min-h-[40vh] place-items-center text-sm text-muted">No original certificate loaded</div> : <Preview data={shown} selected={sel} onSelect={selectElement} zoom={zoom} />}
             <p className="mt-6 text-center text-xs text-muted">Everything happens in your browser — names and logos are never uploaded.</p>
           </div>
         </main>
@@ -549,7 +568,8 @@ export default function CertificateMaker() {
         <aside className="order-3 border-t border-line bg-card p-4 lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:border-l lg:border-t-0" aria-label="Properties">
           <div className="grid content-start gap-4">
             <PanelHeading title="Properties" subtitle={sel ? `Selected: ${REGION_LABELS[sel] ?? sel}` : "Click part of the certificate to select it."} />
-            <Group title="Page">
+            {d.cloneMode && <p className="text-sm font-semibold text-muted">Original background locked</p>}
+            {!d.cloneMode && <Group title="Page">
               <Field label="Paper" id="paper">
                 <select id="paper" className="field" value={d.paper} onChange={(e) => set("paper", e.target.value as CertData["paper"])}>
                   <option value="a4">A4 landscape</option>
@@ -559,8 +579,8 @@ export default function CertificateMaker() {
               <Field label="Accent colour" id="accent">
                 <input id="accent" type="color" value={d.accent} onChange={(e) => set("accent", e.target.value)} className="h-10 w-full cursor-pointer rounded-lg border border-line bg-card p-1" />
               </Field>
-            </Group>
-            <Group title="Typography">
+            </Group>}
+            {!d.cloneMode && <Group title="Typography">
               <Field label="Font set" id="fonts" hint="Odia and Devanagari text works in every set; choose Noto if the whole certificate is in Odia or Hindi.">
                 <select id="fonts" className="field" value={d.fontSet} onChange={(e) => set("fontSet", e.target.value as FontSet)}>
                   {(Object.keys(FONT_SETS) as FontSet[]).map((k) => (
@@ -568,7 +588,7 @@ export default function CertificateMaker() {
                   ))}
                 </select>
               </Field>
-            </Group>
+            </Group>}
             <Group title="Shortcuts" open={false}>
               <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 text-xs">
                 {[["Undo", "Ctrl/⌘ Z"], ["Redo", "Ctrl/⌘ Shift Z"], ["Zoom in / out", "Ctrl/⌘ + / −"], ["Fit to screen", "Ctrl/⌘ 0"], ["Deselect", "Esc"]].map(([a, b]) => (

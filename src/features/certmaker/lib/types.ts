@@ -27,7 +27,31 @@ export interface CustomStyle {
 
 export type BgMode = "recreate" | "image";
 
+export interface CloneTextField {
+  id: string;
+  original: string;
+  replacement: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fontSize: number;
+  font: string;
+  color: string;
+  cover: string;
+}
+
+export interface CloneSource {
+  image: string;
+  width: number;
+  height: number;
+  filename: string;
+  fields: CloneTextField[];
+}
+
 export interface CertData {
+  cloneMode: boolean;
+  clone: CloneSource | null;
   template: string;
   accent: string;
   paper: Paper;
@@ -63,6 +87,8 @@ const today = () =>
   new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
 export const DEFAULT_DATA: CertData = {
+  cloneMode: false,
+  clone: null,
   template: "classic",
   accent: "#b8892f",
   paper: "a4",

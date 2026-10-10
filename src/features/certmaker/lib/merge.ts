@@ -153,6 +153,7 @@ export function fill(text: string, row: Row): string {
 const TEXT_FIELDS = ["org", "title", "subtitle", "recipient", "body", "date", "certId", "sealText"] as const;
 
 export function templateText(d: CertData): string {
+  if (d.cloneMode && d.clone) return d.clone.fields.map((f) => f.replacement).join("\n");
   return [...TEXT_FIELDS.map((k) => d[k]), ...d.sigs.flatMap((s) => [s.name, s.role])].join("\n");
 }
 
@@ -169,6 +170,7 @@ export function certForRow(base: CertData, row: Row, index: number): CertData {
   const vars: Row = { organization: base.org, date: base.date, address: base.address, ...row, certificate_id: certId };
   if (row.name) vars.name = row.name;
   const out: CertData = { ...base, certId };
+  if (base.cloneMode && base.clone) out.clone = { ...base.clone, fields: base.clone.fields.map((f) => ({ ...f, replacement: fill(f.replacement, vars) })) };
   for (const k of TEXT_FIELDS) out[k] = fill(base[k], vars) as never;
   out.certId = certId;
   out.sigs = base.sigs.map((s) => ({ name: fill(s.name, vars), role: fill(s.role, vars) }));

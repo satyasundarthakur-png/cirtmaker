@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { useRef, useState, type DragEvent } from "react";
 import type { CertData } from "@/features/certmaker/lib/types";
 import { analyseReference, type RefResult } from "@/features/certmaker/lib/reference";
+import { loadClone } from "../lib/clone";
 
 interface Props {
   data: CertData;
@@ -20,6 +21,12 @@ export default function ReferencePanel({ data, setData }: Props) {
     setErr("");
     setBusy(true);
     try {
+      if (data.cloneMode) {
+        const clone = await loadClone(file);
+        setRef(null);
+        setData((p) => ({ ...p, clone, cloneMode: true }));
+        return;
+      }
       const r = await analyseReference(file);
       setRef(r);
       setData((p) => ({
@@ -70,15 +77,15 @@ export default function ReferencePanel({ data, setData }: Props) {
         onDrop={onDrop}
         className={`rounded-xl border-2 border-dashed p-5 text-center transition ${over ? "border-brand bg-brand/5" : "border-line"}`}
       >
-        <p className="text-sm">Drop a certificate you like here</p>
-        <p className="mt-1 text-xs text-muted">PDF, DOCX, PNG or JPG · it is read in your browser and never uploaded</p>
+        <p className="text-sm">{data.cloneMode ? "Original certificate" : "Drop a certificate you like here"}</p>
+        <p className="mt-1 text-xs text-muted">{data.cloneMode ? "PDF, PNG or JPG · locked background" : "PDF, DOCX, PNG or JPG · it is read in your browser and never uploaded"}</p>
         <Button variant="certificate" size="certificate" type="button" className="btn mt-3" disabled={busy} onClick={() => input.current?.click()}>
           {busy ? "Reading…" : "Choose file"}
         </Button>
         <input
           ref={input}
           type="file"
-          accept=".pdf,.docx,.png,.jpg,.jpeg,.webp,application/pdf,image/*"
+          accept={data.cloneMode ? ".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*" : ".pdf,.docx,.png,.jpg,.jpeg,.webp,application/pdf,image/*"}
           className="sr-only"
           aria-label="Upload a reference certificate"
           onChange={(e) => void handle(e.target.files?.[0])}
@@ -86,7 +93,8 @@ export default function ReferencePanel({ data, setData }: Props) {
       </div>
       {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
 
-      {ref && active && (
+      {data.cloneMode && data.clone && <p className="break-words text-xs text-muted">{data.clone.filename} · {data.clone.fields.length} text fields</p>}
+      {!data.cloneMode && ref && active && (
         <div className="grid gap-4 rounded-xl border border-line bg-paper p-4">
           <div className="flex gap-4">
             {ref.thumb && <img src={ref.thumb} alt="Your reference certificate" className="h-24 w-auto rounded border border-line bg-card" />}
