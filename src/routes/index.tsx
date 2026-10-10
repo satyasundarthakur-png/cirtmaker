@@ -1,24 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
+import CertificateMaker from "@/features/certmaker/CertificateMaker";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
-  component: Index,
+  head: () => ({ meta: [
+    { title: "Certificate Maker — Design & Bulk Export" },
+    { name: "description", content: "Create personalised certificates with custom templates, text effects and signatures. Export PDF and PNG certificates individually or in bulk, privately in your browser." },
+    { property: "og:title", content: "Certificate Maker — Design & Bulk Export" },
+    { property: "og:description", content: "Design personalised certificates and download PDF or PNG files individually or in bulk." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
+  component: CertificateMaker,
 });
-
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
-function Index() {
-  return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
-  );
-}
