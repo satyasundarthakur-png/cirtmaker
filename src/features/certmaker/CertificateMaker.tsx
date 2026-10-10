@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, FileImage, FileText, Image as ImageIcon, LayoutTemplate, Layers, Maximize2, Palette, PenLine, Redo2, RotateCcw, Stamp, Table2, Undo2, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Braces, Download, FileImage, FileText, Image as ImageIcon, LayoutTemplate, Layers, Maximize2, Palette, PenLine, Redo2, RotateCcw, Stamp, Table2, Undo2, Upload, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Preview from "@/features/certmaker/components/Preview";
 import TemplatePicker from "@/features/certmaker/components/TemplatePicker";
@@ -11,9 +11,12 @@ import { FONT_SETS } from "@/features/certmaker/lib/themes";
 import { REGION_LABELS } from "@/features/certmaker/lib/render";
 import { useHistory } from "@/features/certmaker/lib/history";
 import { batchExport, download, fileSafe, pdfBlob, pngBlob, type BatchFormat } from "@/features/certmaker/lib/exporter";
+import { BUILT_IN_VARS, certForRow, missingVariables, parseDataset } from "@/features/certmaker/lib/merge";
 
 const KEY = "certmaker:v1";
 const MAX_BATCH = 300;
+const SAMPLE_CSV = "Name,Course,Score,Date\nAsha Mohanty,Regional Anaesthesia Workshop,92,12 October 2026\nRavi Kumar,Regional Anaesthesia Workshop,88,12 October 2026\nPriya Nair,Regional Anaesthesia Workshop,95,12 October 2026";
+type TextKey = "org" | "title" | "subtitle" | "recipient" | "body";
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 3;
 
@@ -49,7 +52,10 @@ export default function CertificateMaker() {
     setStorageReady(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [names, setNames] = useState("Asha Mohanty\nRavi Kumar\nPriya Nair");
+  const [csv, setCsv] = useState(SAMPLE_CSV);
+  const [previewRow, setPreviewRow] = useState<number | null>(null);
+  const lastField = useRef<TextKey>("body");
+  const csvFile = useRef<HTMLInputElement>(null);
   const [fmt, setFmt] = useState<BatchFormat>("pdf-zip");
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<[number, number] | null>(null);
@@ -74,8 +80,23 @@ export default function CertificateMaker() {
   const setSig = (i: number, k: "name" | "role", v: string) =>
     setD((p) => ({ ...p, sigs: p.sigs.map((s, j) => (j === i ? { ...s, [k]: v } : s)) }));
 
-  const list = useMemo(() => names.split(/\r?\n/).map((s) => s.trim()).filter(Boolean), [names]);
-  const slug = fileSafe(d.recipient) || "certificate";
+  const ds = useMemo(() => parseDataset(csv), [csv]);
+  const missing = useMemo(() => missingVariables(d, ds), [d, ds]);
+  const rowCount = ds.rows.length;
+  const rowIdx = previewRow !== null && previewRow < rowCount ? previewRow : null;
+  const shown = useMemo(() => (rowIdx !== null && ds.rows[rowIdx] ? certForRow(d, ds.rows[rowIdx], rowIdx) : d), [d, ds, rowIdx]);
+  const slug = fileSafe(shown.recipient) || "certificate";
+  const varChoices = useMemo(() => [...new Set<string>([...BUILT_IN_VARS, ...ds.headers])], [ds.headers]);
+  const insertVar = (v: string) => set(lastField.current, (d[lastField.current] + `{{${v}}}`) as never);
+  const focusKey = (k: TextKey) => () => { lastField.current = k; };
+
+  function onCsvFile(file?: File) {
+    if (!file) return;
+    if (file.size > 5_000_000) return setErr("That file is over 5 MB — split it into smaller batches.");
+    const r = new FileReader();
+    r.onload = () => { setCsv(String(r.result)); setPreviewRow(0); };
+    r.readAsText(file);
+  }
 
   const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
   const zoomBy = useCallback((f: number) => setZoom((z) => clampZoom(z * f)), []);
@@ -126,10 +147,10 @@ export default function CertificateMaker() {
 
   const exportButtons = (
     <>
-      <Button variant="certificate" size="certificate" type="button" className="btn btn-primary" disabled={!!busy} onClick={() => run("pdf", async () => download(await pdfBlob(d), `${slug}.pdf`))}>
+      <Button variant="certificate" size="certificate" type="button" className="btn btn-primary" disabled={!!busy} onClick={() => run("pdf", async () => download(await pdfBlob(shown), `${slug}.pdf`))}>
         <FileText aria-hidden /> {busy === "pdf" ? "Preparing…" : "PDF"}
       </Button>
-      <Button variant="certificate" size="certificate" type="button" className="btn" disabled={!!busy} onClick={() => run("png", async () => download(await pngBlob(d), `${slug}.png`))}>
+      <Button variant="certificate" size="certificate" type="button" className="btn" disabled={!!busy} onClick={() => run("png", async () => download(await pngBlob(shown), `${slug}.png`))}>
         <FileImage aria-hidden /> {busy === "png" ? "Preparing…" : "PNG"}
       </Button>
     </>
@@ -204,15 +225,23 @@ export default function CertificateMaker() {
             {tab === "content" && (
               <>
                 <PanelHeading title="Content" subtitle="The words on the certificate." />
-                <Field label="Organisation" id="org"><input id="org" className="field" value={d.org} onChange={(e) => set("org", e.target.value)} /></Field>
-                <Field label="Title" id="title"><input id="title" className="field" value={d.title} onChange={(e) => set("title", e.target.value)} /></Field>
-                <Field label="Line above the name" id="sub"><input id="sub" className="field" value={d.subtitle} onChange={(e) => set("subtitle", e.target.value)} /></Field>
-                <Field label="Recipient name" id="rec"><input id="rec" className="field" value={d.recipient} onChange={(e) => set("recipient", e.target.value)} /></Field>
-                <Field label="Description (up to 4 lines)" id="body"><textarea id="body" rows={4} className="field" value={d.body} onChange={(e) => set("body", e.target.value)} /></Field>
+                <Field label="Organisation" id="org"><input id="org" className="field" onFocus={focusKey("org")} value={d.org} onChange={(e) => set("org", e.target.value)} /></Field>
+                <Field label="Title" id="title"><input id="title" className="field" onFocus={focusKey("title")} value={d.title} onChange={(e) => set("title", e.target.value)} /></Field>
+                <Field label="Line above the name" id="sub"><input id="sub" className="field" onFocus={focusKey("subtitle")} value={d.subtitle} onChange={(e) => set("subtitle", e.target.value)} /></Field>
+                <Field label="Recipient name" id="rec"><input id="rec" className="field" onFocus={focusKey("recipient")} value={d.recipient} onChange={(e) => set("recipient", e.target.value)} /></Field>
+                <Field label="Description (up to 4 lines)" id="body"><textarea id="body" rows={4} className="field" onFocus={focusKey("body")} value={d.body} onChange={(e) => set("body", e.target.value)} /></Field>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Date" id="date"><input id="date" className="field" value={d.date} onChange={(e) => set("date", e.target.value)} /></Field>
                   <Field label="Certificate ID" id="cid"><input id="cid" className="field" value={d.certId} onChange={(e) => set("certId", e.target.value)} /></Field>
                 </div>
+                <Group title="Insert variable" open={false}>
+                  <p className="text-xs text-muted">Click a variable to add it to the field you last edited. Values come from your table in the Variables tab.</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {varChoices.map((v) => (
+                      <button key={v} type="button" className="chip font-mono !text-xs" onClick={() => insertVar(v)}>{`{{${v}}}`}</button>
+                    ))}
+                  </div>
+                </Group>
               </>
             )}
 
@@ -256,11 +285,43 @@ export default function CertificateMaker() {
 
             {tab === "variables" && (
               <>
-                <PanelHeading title="Bulk issue" subtitle="One certificate per recipient." />
-                <Field label={`Names, one per line (${list.length}${list.length > MAX_BATCH ? ` — max ${MAX_BATCH}` : ""})`} id="names">
-                  <textarea id="names" rows={8} className="field font-mono" value={names} onChange={(e) => setNames(e.target.value)} />
+                <PanelHeading title="Bulk issue" subtitle="Paste or upload a table. Every column becomes a {{variable}} you can use anywhere on the certificate." />
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="certificate" size="certificate" type="button" className="btn" onClick={() => csvFile.current?.click()}><Upload aria-hidden /> Upload CSV</Button>
+                  <Button variant="certificate" size="certificate" type="button" className="btn" onClick={() => { setCsv(SAMPLE_CSV); setPreviewRow(0); }}>Load sample</Button>
+                  <input ref={csvFile} type="file" accept=".csv,.tsv,.txt,text/csv" className="sr-only" aria-label="Upload CSV file" onChange={(e) => { onCsvFile(e.target.files?.[0]); e.target.value = ""; }} />
+                </div>
+                <Field label={`Recipients table (${rowCount}${rowCount > MAX_BATCH ? ` — max ${MAX_BATCH}` : ""})`} id="csv" hint="First row = column names, e.g. Name,Course,Score,Date. A plain list of names also works.">
+                  <textarea id="csv" rows={7} spellCheck={false} className="field font-mono text-xs" value={csv} onChange={(e) => setCsv(e.target.value)} />
                 </Field>
-                <Field label="Output" id="fmt" hint="Certificate IDs count up automatically from the ID in Content (CERT-2026-001, -002, …).">
+
+                {rowCount === 0 ? (
+                  <EmptyState icon={<Table2 className="size-5" aria-hidden />} title="No recipients yet">Paste rows above or upload a CSV to start issuing in bulk.</EmptyState>
+                ) : (
+                  <>
+                    <div>
+                      <p className="label">Columns detected</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {ds.headers.map((h) => <span key={h} className="rounded-full bg-secondary px-2.5 py-1 font-mono text-xs"><Braces className="mr-1 inline size-3 align-[-1px]" aria-hidden />{h}</span>)}
+                      </div>
+                    </div>
+                    <Field label="Preview on canvas" id="prow">
+                      <select id="prow" className="field" value={rowIdx ?? -1} onChange={(e) => setPreviewRow(Number(e.target.value) < 0 ? null : Number(e.target.value))}>
+                        <option value={-1}>Template (show {"{{variables}}"})</option>
+                        {ds.rows.slice(0, 200).map((r, i) => <option key={i} value={i}>{i + 1}. {r.name || "(no name)"}</option>)}
+                      </select>
+                    </Field>
+                  </>
+                )}
+
+                {missing.length > 0 && (
+                  <p role="status" className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                    <span>Not in your table, so these stay as typed: {missing.map((m) => `{{${m}}}`).join(", ")}</span>
+                  </p>
+                )}
+
+                <Field label="Output" id="fmt" hint="Certificate IDs count up from the ID in Content (CERT-2026-001, -002, …) unless your table has a certificate_id column.">
                   <select id="fmt" className="field" value={fmt} onChange={(e) => setFmt(e.target.value as BatchFormat)}>
                     <option value="pdf-zip">Separate PDFs (.zip)</option>
                     <option value="png-zip">Separate PNG images (.zip)</option>
@@ -268,13 +329,14 @@ export default function CertificateMaker() {
                   </select>
                 </Field>
                 <Button variant="certificate" size="certificate" type="button" className="btn btn-primary"
-                  disabled={!!busy || list.length === 0 || list.length > MAX_BATCH}
+                  disabled={!!busy || rowCount === 0 || rowCount > MAX_BATCH}
                   onClick={() => run("batch", async () => {
-                    const r = await batchExport(list, d, fmt, (a, b) => setProgress([a, b]));
+                    const items = ds.rows.map((r, i) => certForRow(d, r, i));
+                    const r = await batchExport(items, fmt, (a, b) => setProgress([a, b]));
                     download(r.blob, r.filename);
                   })}
                 >
-                  {busy === "batch" && progress ? `Generating ${progress[0]} / ${progress[1]}…` : `Generate ${list.length} certificate${list.length === 1 ? "" : "s"}`}
+                  {busy === "batch" && progress ? `Generating ${progress[0]} / ${progress[1]}…` : `Generate ${rowCount} certificate${rowCount === 1 ? "" : "s"}`}
                 </Button>
               </>
             )}
@@ -294,7 +356,7 @@ export default function CertificateMaker() {
         {/* canvas */}
         <main className="order-1 min-w-0 flex-1 lg:order-2 lg:overflow-auto" aria-label="Certificate canvas">
           <div className="checker min-h-[40vh] p-4 sm:p-8 lg:min-h-full">
-            <Preview data={d} selected={sel} onSelect={selectElement} zoom={zoom} />
+            <Preview data={shown} selected={sel} onSelect={selectElement} zoom={zoom} />
             <p className="mt-6 text-center text-xs text-muted">Everything happens in your browser — names and logos are never uploaded.</p>
           </div>
         </main>
@@ -340,7 +402,7 @@ export default function CertificateMaker() {
       {/* sticky export bar on small screens */}
       <div className="sticky bottom-0 z-30 flex items-center gap-2 border-t border-line bg-card/95 px-3 py-2 backdrop-blur md:hidden">
         <Layers className="size-4 text-muted" aria-hidden />
-        <span className="mr-auto truncate text-xs text-muted">{d.recipient}</span>
+        <span className="mr-auto truncate text-xs text-muted">{shown.recipient}</span>
         {exportButtons}
       </div>
     </div>

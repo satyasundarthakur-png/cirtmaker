@@ -4,16 +4,8 @@ import { renderToCanvas } from "./render";
 
 const EXPORT_W = 2339; // ≈200 dpi on A4
 
-export function fileSafe(s: string) {
-  return s.replace(/[\\/:*?"<>|\n\r\t]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 60);
-}
-
-export function nextId(base: string, i: number) {
-  const m = base.match(/(\d+)(\D*)$/);
-  if (!m || !m[1]) return base ? `${base}-${i + 1}` : "";
-  const n = String(parseInt(m[1], 10) + i).padStart(m[1].length, "0");
-  return base.slice(0, m.index) + n + m[2];
-}
+export { fileSafe, nextId } from "./exporter-utils";
+import { fileSafe } from "./exporter-utils";
 
 async function canvasFor(d: CertData) {
   const c = document.createElement("canvas");
@@ -43,21 +35,21 @@ export async function pngBlob(d: CertData): Promise<Blob> {
 export type BatchFormat = "pdf-zip" | "png-zip" | "pdf-one";
 
 export async function batchExport(
-  names: string[],
-  base: CertData,
+  items: CertData[],
   format: BatchFormat,
   onProgress: (done: number, total: number) => void,
 ): Promise<{ blob: Blob; filename: string }> {
+  const first = items[0];
+  if (!first) throw new Error("Nothing to generate.");
   const zip = new JSZip();
   let one: Awaited<ReturnType<typeof newPdf>> | null = null;
-  if (format === "pdf-one") one = await newPdf(base);
+  if (format === "pdf-one") one = await newPdf(first);
 
-  for (let i = 0; i < names.length; i++) {
-    const recipient = names[i];
-    if (recipient === undefined) continue;
-    const d: CertData = { ...base, recipient, certId: nextId(base.certId, i) };
+  for (let i = 0; i < items.length; i++) {
+    const d = items[i];
+    if (!d) continue;
     const c = await canvasFor(d);
-    const label = `${String(i + 1).padStart(3, "0")}-${fileSafe(recipient) || "certificate"}`;
+    const label = `${String(i + 1).padStart(3, "0")}-${fileSafe(d.recipient) || "certificate"}`;
     if (format === "png-zip") {
       zip.file(`${label}.png`, await toBlob(c, "image/png"));
     } else if (format === "pdf-zip") {
@@ -68,7 +60,7 @@ export async function batchExport(
       if (i > 0) one.pdf.addPage([one.w, one.h], "landscape");
       one.pdf.addImage(c.toDataURL("image/jpeg", 0.9), "JPEG", 0, 0, one.w, one.h);
     }
-    onProgress(i + 1, names.length);
+    onProgress(i + 1, items.length);
     await new Promise((r) => setTimeout(r, 0)); // let the UI breathe
   }
   if (one) return { blob: one.pdf.output("blob"), filename: "certificates.pdf" };
