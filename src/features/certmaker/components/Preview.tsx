@@ -6,9 +6,12 @@ interface Props {
   data: CertData;
   selected: string | null;
   onSelect: (id: string | null) => void;
+  /** 1 = fit to the available width. */
+  zoom?: number;
 }
 
-export default function Preview({ data, selected, onSelect }: Props) {
+export default function Preview({ data, selected, onSelect, zoom = 1 }: Props) {
+  const renderW = Math.min(3000, Math.round(1400 * Math.max(1, zoom)));
   const ref = useRef<HTMLCanvasElement>(null);
   const [busy, setBusy] = useState(true);
   const [regions, setRegions] = useState<Region[]>([]);
@@ -21,7 +24,7 @@ export default function Preview({ data, selected, onSelect }: Props) {
       if (!ref.current) return;
       // draw on an offscreen canvas first so a stale render never flashes on screen
       const off = document.createElement("canvas");
-      const regs = await renderToCanvas(off, data, 1400);
+      const regs = await renderToCanvas(off, data, renderW);
       if (my !== token.current || !ref.current) return;
       ref.current.width = off.width;
       ref.current.height = off.height;
@@ -32,7 +35,7 @@ export default function Preview({ data, selected, onSelect }: Props) {
       setBusy(false);
     }, 60);
     return () => clearTimeout(t);
-  }, [data]);
+  }, [data, renderW]);
 
   const H = certHeight(data);
 
@@ -49,7 +52,7 @@ export default function Preview({ data, selected, onSelect }: Props) {
   const sel = regions.find((g) => g.id === selected);
 
   return (
-    <div className="relative cursor-pointer overflow-hidden rounded-xl border border-line bg-card shadow-certificate" onClick={click}>
+    <div className="relative mx-auto cursor-pointer overflow-hidden rounded-sm border border-line bg-card shadow-[0_10px_40px_-12px_rgba(15,23,42,0.35)]" style={{ width: `${zoom * 100}%` }} onClick={click}>
       <canvas ref={ref} className="block h-auto w-full" role="img" aria-label={`Certificate preview for ${data.recipient}. Click a part of the certificate to give it an effect.`} />
       {sel && (
         <div

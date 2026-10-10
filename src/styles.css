@@ -204,3 +204,9 @@ body { @apply bg-paper text-ink font-sans antialiased; }
 
 * { letter-spacing: 0; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Studio workspace */
+.tool { @apply grid size-8 place-items-center rounded-md text-ink transition hover:bg-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent; }
+.tool > svg { @apply size-4; }
+.btn > svg { @apply size-4; }
+.btn { @apply min-h-9; }

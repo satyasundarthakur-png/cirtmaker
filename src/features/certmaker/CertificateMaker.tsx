@@ -1,39 +1,41 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Download, FileImage, FileText, Image as ImageIcon, LayoutTemplate, Layers, Maximize2, Palette, PenLine, Redo2, RotateCcw, Stamp, Table2, Undo2, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Preview from "@/features/certmaker/components/Preview";
 import TemplatePicker from "@/features/certmaker/components/TemplatePicker";
 import ReferencePanel from "@/features/certmaker/components/ReferencePanel";
 import EffectsPanel from "@/features/certmaker/components/EffectsPanel";
+import { EmptyState, Field, Group, PanelHeading } from "@/features/certmaker/components/bits";
 import { DEFAULT_DATA, type CertData, type FontSet } from "@/features/certmaker/lib/types";
 import { FONT_SETS } from "@/features/certmaker/lib/themes";
+import { REGION_LABELS } from "@/features/certmaker/lib/render";
+import { useHistory } from "@/features/certmaker/lib/history";
 import { batchExport, download, fileSafe, pdfBlob, pngBlob, type BatchFormat } from "@/features/certmaker/lib/exporter";
 
 const KEY = "certmaker:v1";
 const MAX_BATCH = 300;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 3;
 
-function Section({ title, children, open = true }: { title: string; children: ReactNode; open?: boolean }) {
-  return (
-    <details open={open} className="group rounded-2xl border border-line bg-card">
-      <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 font-display text-lg">
-        {title}
-        <span aria-hidden className="text-muted transition group-open:rotate-180">⌄</span>
-      </summary>
-      <div className="grid gap-4 px-5 pb-5">{children}</div>
-    </details>
-  );
-}
+type TabId = "templates" | "content" | "branding" | "colors" | "variables" | "export";
+const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
+  { id: "templates", label: "Templates", icon: LayoutTemplate },
+  { id: "content", label: "Content", icon: PenLine },
+  { id: "branding", label: "Branding", icon: Stamp },
+  { id: "colors", label: "Colors", icon: Palette },
+  { id: "variables", label: "Variables", icon: Table2 },
+  { id: "export", label: "Export", icon: Download },
+];
 
-function Field({ label, id, children }: { label: string; id: string; children: ReactNode }) {
-  return (
-    <div>
-      <label htmlFor={id} className="label">{label}</label>
-      {children}
-    </div>
-  );
+function isTyping(t: EventTarget | null) {
+  const el = t as HTMLElement | null;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 }
 
 export default function CertificateMaker() {
-  const [d, setD] = useState<CertData>(DEFAULT_DATA);
+  const h = useHistory<CertData>(DEFAULT_DATA);
+  const d = h.present;
+  const setD = h.set;
   const [storageReady, setStorageReady] = useState(false);
   useEffect(() => {
     try {
@@ -41,10 +43,11 @@ export default function CertificateMaker() {
       if (raw) {
         const saved = { ...DEFAULT_DATA, ...JSON.parse(raw) } as CertData;
         if (saved.template === "inspired" && !saved.custom) saved.template = "classic";
-        setD({ ...saved, fx: saved.fx ?? {}, colors: saved.colors ?? {}, refBg: "", bgMode: "recreate" });
+        h.reset({ ...saved, fx: saved.fx ?? {}, colors: saved.colors ?? {}, refBg: "", bgMode: "recreate" });
       }
     } catch { /* storage unavailable */ }
     setStorageReady(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [names, setNames] = useState("Asha Mohanty\nRavi Kumar\nPriya Nair");
   const [fmt, setFmt] = useState<BatchFormat>("pdf-zip");
@@ -52,6 +55,8 @@ export default function CertificateMaker() {
   const [progress, setProgress] = useState<[number, number] | null>(null);
   const [err, setErr] = useState("");
   const [sel, setSel] = useState<string | null>(null);
+  const [tab, setTab] = useState<TabId>("templates");
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     if (!storageReady) return;
@@ -71,6 +76,27 @@ export default function CertificateMaker() {
 
   const list = useMemo(() => names.split(/\r?\n/).map((s) => s.trim()).filter(Boolean), [names]);
   const slug = fileSafe(d.recipient) || "certificate";
+
+  const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
+  const zoomBy = useCallback((f: number) => setZoom((z) => clampZoom(z * f)), []);
+
+  // keyboard shortcuts (ignored while typing so native text undo keeps working)
+  const { undo, redo } = h;
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (isTyping(e.target)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const k = e.key.toLowerCase();
+      if (mod && k === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+      else if (mod && k === "y") { e.preventDefault(); redo(); }
+      else if (mod && (k === "=" || k === "+")) { e.preventDefault(); zoomBy(1.2); }
+      else if (mod && k === "-") { e.preventDefault(); zoomBy(1 / 1.2); }
+      else if (mod && k === "0") { e.preventDefault(); setZoom(1); }
+      else if (k === "escape") setSel(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo, zoomBy]);
 
   async function run(label: string, fn: () => Promise<void>) {
     setErr("");
@@ -93,128 +119,230 @@ export default function CertificateMaker() {
     r.readAsDataURL(file);
   }
 
+  const selectElement = (id: string | null) => {
+    setSel(id);
+    if (id) setTab("colors");
+  };
+
+  const exportButtons = (
+    <>
+      <Button variant="certificate" size="certificate" type="button" className="btn btn-primary" disabled={!!busy} onClick={() => run("pdf", async () => download(await pdfBlob(d), `${slug}.pdf`))}>
+        <FileText aria-hidden /> {busy === "pdf" ? "Preparing…" : "PDF"}
+      </Button>
+      <Button variant="certificate" size="certificate" type="button" className="btn" disabled={!!busy} onClick={() => run("png", async () => download(await pngBlob(d), `${slug}.png`))}>
+        <FileImage aria-hidden /> {busy === "png" ? "Preparing…" : "PNG"}
+      </Button>
+    </>
+  );
+
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-line bg-card">
-        <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-4 sm:px-6">
-          <svg width="30" height="30" viewBox="0 0 100 100" aria-hidden>
-            <rect width="100" height="100" rx="20" fill="var(--certificate-icon-ink)" />
-            <rect x="16" y="24" width="68" height="46" rx="3" fill="var(--certificate-icon-paper)" stroke="var(--certificate-icon-gold)" strokeWidth="4" />
-            <path d="M30 42h40M36 52h28" stroke="var(--certificate-icon-ink)" strokeWidth="4" strokeLinecap="round" />
-            <circle cx="50" cy="74" r="10" fill="var(--certificate-icon-gold)" />
-          </svg>
-          <div>
-            <h1 className="font-display text-xl leading-none">Certificate Maker</h1>
-            <p className="mt-1 text-xs text-muted">Design, personalise in bulk, download as PDF</p>
-          </div>
+    <div className="flex min-h-screen flex-col bg-paper lg:h-screen lg:overflow-hidden">
+      {/* top bar */}
+      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-card px-3 py-2 sm:px-4">
+        <svg width="28" height="28" viewBox="0 0 100 100" aria-hidden className="shrink-0">
+          <rect width="100" height="100" rx="20" fill="var(--certificate-icon-ink)" />
+          <rect x="16" y="24" width="68" height="46" rx="3" fill="var(--certificate-icon-paper)" stroke="var(--certificate-icon-gold)" strokeWidth="4" />
+          <path d="M30 42h40M36 52h28" stroke="var(--certificate-icon-ink)" strokeWidth="4" strokeLinecap="round" />
+          <circle cx="50" cy="74" r="10" fill="var(--certificate-icon-gold)" />
+        </svg>
+        <div className="min-w-0">
+          <h1 className="truncate font-display text-base font-bold leading-none">Certificate Studio</h1>
+          <p className="mt-0.5 hidden text-[11px] text-muted sm:block">Design · personalise in bulk · issue &amp; verify</p>
+        </div>
+
+        <div className="ml-auto flex items-center gap-1" role="toolbar" aria-label="Editor actions">
+          <button type="button" className="tool" onClick={h.undo} disabled={!h.canUndo} aria-label="Undo (Ctrl+Z)" title="Undo (Ctrl+Z)"><Undo2 aria-hidden /></button>
+          <button type="button" className="tool" onClick={h.redo} disabled={!h.canRedo} aria-label="Redo (Ctrl+Shift+Z)" title="Redo (Ctrl+Shift+Z)"><Redo2 aria-hidden /></button>
+          <span className="mx-1 hidden h-5 w-px bg-line sm:block" />
+          <button type="button" className="tool hidden sm:grid" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out (Ctrl+−)" title="Zoom out (Ctrl+−)"><ZoomOut aria-hidden /></button>
+          <button type="button" className="hidden min-w-12 rounded-md px-1.5 py-1 text-xs font-semibold tabular-nums hover:bg-secondary sm:block" onClick={() => setZoom(1)} title="Fit to screen (Ctrl+0)" aria-label={`Zoom ${Math.round(zoom * 100)} percent. Reset to fit`}>{Math.round(zoom * 100)}%</button>
+          <button type="button" className="tool hidden sm:grid" onClick={() => zoomBy(1.2)} aria-label="Zoom in (Ctrl+=)" title="Zoom in (Ctrl+=)"><ZoomIn aria-hidden /></button>
+          <button type="button" className="tool hidden sm:grid" onClick={() => setZoom(1)} aria-label="Fit to screen" title="Fit to screen (Ctrl+0)"><Maximize2 aria-hidden /></button>
+          <span className="mx-1 hidden h-5 w-px bg-line md:block" />
+          <div className="hidden items-center gap-2 md:flex">{exportButtons}</div>
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[430px_1fr]">
-        <div className="order-2 grid content-start gap-4 lg:order-1">
-          <Section title="Inspired by your own certificate" open={false}>
-            <ReferencePanel data={d} setData={setD} />
-          </Section>
+      <div className="flex flex-1 flex-col lg:min-h-0 lg:flex-row">
+        {/* sidebar: rail + panel */}
+        <aside className="order-2 flex flex-col border-line bg-card lg:order-1 lg:w-[22.5rem] lg:shrink-0 lg:flex-row lg:border-r">
+          <nav className="flex shrink-0 overflow-x-auto border-b border-line lg:flex-col lg:overflow-visible lg:border-b-0 lg:border-r" aria-label="Workspace sections">
+            <div role="tablist" aria-orientation="vertical" className="flex lg:flex-col">
+              {TABS.map((t) => {
+                const on = tab === t.id;
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    id={`tab-${t.id}`}
+                    role="tab"
+                    type="button"
+                    aria-selected={on}
+                    aria-controls="side-panel"
+                    onClick={() => setTab(t.id)}
+                    className={`flex min-w-[4.5rem] flex-1 flex-col items-center gap-1 px-2 py-3 text-[11px] font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand lg:flex-none ${on ? "bg-secondary text-brand" : "text-muted hover:bg-secondary/60 hover:text-ink"}`}
+                  >
+                    <Icon className="size-5" aria-hidden />
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
 
-          <Section title="Design">
-            <TemplatePicker data={d} onPick={(id, accent) => setD((p) => ({ ...p, template: id, accent: id === "inspired" && p.custom ? p.custom.accent : accent, bgMode: id === "inspired" ? p.bgMode : "recreate" }))} />
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Accent colour" id="accent">
-                <input id="accent" type="color" value={d.accent} onChange={(e) => set("accent", e.target.value)} className="h-10 w-full cursor-pointer rounded-lg border border-line bg-card p-1" />
-              </Field>
+          <div id="side-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="grid min-w-0 flex-1 content-start gap-4 p-4 lg:overflow-y-auto">
+            {tab === "templates" && (
+              <>
+                <PanelHeading title="Templates" subtitle="Pick a starting point. Everything stays editable." />
+                <TemplatePicker data={d} onPick={(id, accent) => setD((p) => ({ ...p, template: id, accent: id === "inspired" && p.custom ? p.custom.accent : accent, bgMode: id === "inspired" ? p.bgMode : "recreate" }))} />
+                <Group title="Match your own certificate" open={false}>
+                  <ReferencePanel data={d} setData={setD} />
+                </Group>
+              </>
+            )}
+
+            {tab === "content" && (
+              <>
+                <PanelHeading title="Content" subtitle="The words on the certificate." />
+                <Field label="Organisation" id="org"><input id="org" className="field" value={d.org} onChange={(e) => set("org", e.target.value)} /></Field>
+                <Field label="Title" id="title"><input id="title" className="field" value={d.title} onChange={(e) => set("title", e.target.value)} /></Field>
+                <Field label="Line above the name" id="sub"><input id="sub" className="field" value={d.subtitle} onChange={(e) => set("subtitle", e.target.value)} /></Field>
+                <Field label="Recipient name" id="rec"><input id="rec" className="field" value={d.recipient} onChange={(e) => set("recipient", e.target.value)} /></Field>
+                <Field label="Description (up to 4 lines)" id="body"><textarea id="body" rows={4} className="field" value={d.body} onChange={(e) => set("body", e.target.value)} /></Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Date" id="date"><input id="date" className="field" value={d.date} onChange={(e) => set("date", e.target.value)} /></Field>
+                  <Field label="Certificate ID" id="cid"><input id="cid" className="field" value={d.certId} onChange={(e) => set("certId", e.target.value)} /></Field>
+                </div>
+              </>
+            )}
+
+            {tab === "branding" && (
+              <>
+                <PanelHeading title="Branding" subtitle="Logo, seal and signatories." />
+                <Group title="Logo">
+                  <Field label="Upload (PNG / JPG / SVG)" id="logo">
+                    <input id="logo" type="file" accept="image/*" className="field" onChange={(e) => onLogo(e.target.files?.[0])} />
+                  </Field>
+                  {d.logo ? (
+                    <div className="flex items-center gap-3">
+                      <img src={d.logo} alt="Uploaded logo" className="h-12 max-w-[8rem] rounded border border-line bg-white object-contain p-1" />
+                      <Button variant="certificate" size="certificate" type="button" className="text-xs text-brand underline" onClick={() => set("logo", "")}>Remove logo</Button>
+                    </div>
+                  ) : (
+                    <EmptyState icon={<ImageIcon className="size-5" aria-hidden />} title="No logo yet">Upload one and it appears at the top of every certificate.</EmptyState>
+                  )}
+                </Group>
+                <Group title="Seal">
+                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={d.showSeal} onChange={(e) => set("showSeal", e.target.checked)} className="accent-brand" /> Show seal</label>
+                  <Field label="Seal text (optional, ≤ 8 chars)" id="seal"><input id="seal" maxLength={8} className="field" value={d.sealText} onChange={(e) => set("sealText", e.target.value)} placeholder="★ if empty" /></Field>
+                </Group>
+                <Group title="Signatories">
+                  {d.sigs.map((s, i) => (
+                    <div key={i} className="grid grid-cols-2 gap-3">
+                      <Field label={`Signatory ${i + 1}`} id={`sn${i}`}><input id={`sn${i}`} className="field" value={s.name} onChange={(e) => setSig(i, "name", e.target.value)} /></Field>
+                      <Field label="Role" id={`sr${i}`}><input id={`sr${i}`} className="field" value={s.role} onChange={(e) => setSig(i, "role", e.target.value)} /></Field>
+                    </div>
+                  ))}
+                </Group>
+              </>
+            )}
+
+            {tab === "colors" && (
+              <>
+                <PanelHeading title="Colors &amp; effects" subtitle="Select a part of the certificate, then style it." />
+                <EffectsPanel data={d} setData={setD} selected={sel} setSelected={setSel} />
+              </>
+            )}
+
+            {tab === "variables" && (
+              <>
+                <PanelHeading title="Bulk issue" subtitle="One certificate per recipient." />
+                <Field label={`Names, one per line (${list.length}${list.length > MAX_BATCH ? ` — max ${MAX_BATCH}` : ""})`} id="names">
+                  <textarea id="names" rows={8} className="field font-mono" value={names} onChange={(e) => setNames(e.target.value)} />
+                </Field>
+                <Field label="Output" id="fmt" hint="Certificate IDs count up automatically from the ID in Content (CERT-2026-001, -002, …).">
+                  <select id="fmt" className="field" value={fmt} onChange={(e) => setFmt(e.target.value as BatchFormat)}>
+                    <option value="pdf-zip">Separate PDFs (.zip)</option>
+                    <option value="png-zip">Separate PNG images (.zip)</option>
+                    <option value="pdf-one">One combined PDF</option>
+                  </select>
+                </Field>
+                <Button variant="certificate" size="certificate" type="button" className="btn btn-primary"
+                  disabled={!!busy || list.length === 0 || list.length > MAX_BATCH}
+                  onClick={() => run("batch", async () => {
+                    const r = await batchExport(list, d, fmt, (a, b) => setProgress([a, b]));
+                    download(r.blob, r.filename);
+                  })}
+                >
+                  {busy === "batch" && progress ? `Generating ${progress[0]} / ${progress[1]}…` : `Generate ${list.length} certificate${list.length === 1 ? "" : "s"}`}
+                </Button>
+              </>
+            )}
+
+            {tab === "export" && (
+              <>
+                <PanelHeading title="Export" subtitle="Download the certificate you are editing." />
+                <div className="flex flex-wrap gap-2">{exportButtons}</div>
+                <p className="text-xs text-muted">Bulk downloads live under Variables.</p>
+              </>
+            )}
+
+            {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
+          </div>
+        </aside>
+
+        {/* canvas */}
+        <main className="order-1 min-w-0 flex-1 lg:order-2 lg:overflow-auto" aria-label="Certificate canvas">
+          <div className="checker min-h-[40vh] p-4 sm:p-8 lg:min-h-full">
+            <Preview data={d} selected={sel} onSelect={selectElement} zoom={zoom} />
+            <p className="mt-6 text-center text-xs text-muted">Everything happens in your browser — names and logos are never uploaded.</p>
+          </div>
+        </main>
+
+        {/* properties */}
+        <aside className="order-3 border-t border-line bg-card p-4 lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:border-l lg:border-t-0" aria-label="Properties">
+          <div className="grid content-start gap-4">
+            <PanelHeading title="Properties" subtitle={sel ? `Selected: ${REGION_LABELS[sel] ?? sel}` : "Click part of the certificate to select it."} />
+            <Group title="Page">
               <Field label="Paper" id="paper">
                 <select id="paper" className="field" value={d.paper} onChange={(e) => set("paper", e.target.value as CertData["paper"])}>
                   <option value="a4">A4 landscape</option>
                   <option value="letter">US Letter landscape</option>
                 </select>
               </Field>
-            </div>
-            <Field label="Typography" id="fonts">
-              <select id="fonts" className="field" value={d.fontSet} onChange={(e) => set("fontSet", e.target.value as FontSet)}>
-                {(Object.keys(FONT_SETS) as FontSet[]).map((k) => (
-                  <option key={k} value={k}>{FONT_SETS[k].label}</option>
+              <Field label="Accent colour" id="accent">
+                <input id="accent" type="color" value={d.accent} onChange={(e) => set("accent", e.target.value)} className="h-10 w-full cursor-pointer rounded-lg border border-line bg-card p-1" />
+              </Field>
+            </Group>
+            <Group title="Typography">
+              <Field label="Font set" id="fonts" hint="Odia and Devanagari text works in every set; choose Noto if the whole certificate is in Odia or Hindi.">
+                <select id="fonts" className="field" value={d.fontSet} onChange={(e) => set("fontSet", e.target.value as FontSet)}>
+                  {(Object.keys(FONT_SETS) as FontSet[]).map((k) => (
+                    <option key={k} value={k}>{FONT_SETS[k].label}</option>
+                  ))}
+                </select>
+              </Field>
+            </Group>
+            <Group title="Shortcuts" open={false}>
+              <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 text-xs">
+                {[["Undo", "Ctrl/⌘ Z"], ["Redo", "Ctrl/⌘ Shift Z"], ["Zoom in / out", "Ctrl/⌘ + / −"], ["Fit to screen", "Ctrl/⌘ 0"], ["Deselect", "Esc"]].map(([a, b]) => (
+                  <div key={a} className="contents"><dt className="text-muted">{a}</dt><dd className="font-mono">{b}</dd></div>
                 ))}
-              </select>
-              <p className="mt-1.5 text-xs text-muted">Odia and Devanagari text works in every set; choose Noto if the whole certificate is in Odia or Hindi.</p>
-            </Field>
-          </Section>
-
-          <Section title="Content">
-            <Field label="Organisation" id="org"><input id="org" className="field" value={d.org} onChange={(e) => set("org", e.target.value)} /></Field>
-            <Field label="Title" id="title"><input id="title" className="field" value={d.title} onChange={(e) => set("title", e.target.value)} /></Field>
-            <Field label="Line above the name" id="sub"><input id="sub" className="field" value={d.subtitle} onChange={(e) => set("subtitle", e.target.value)} /></Field>
-            <Field label="Recipient name" id="rec"><input id="rec" className="field" value={d.recipient} onChange={(e) => set("recipient", e.target.value)} /></Field>
-            <Field label="Description (up to 4 lines)" id="body"><textarea id="body" rows={4} className="field" value={d.body} onChange={(e) => set("body", e.target.value)} /></Field>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Date" id="date"><input id="date" className="field" value={d.date} onChange={(e) => set("date", e.target.value)} /></Field>
-              <Field label="Certificate ID" id="cid"><input id="cid" className="field" value={d.certId} onChange={(e) => set("certId", e.target.value)} /></Field>
-            </div>
-          </Section>
-
-          <Section title="Text colours & effects">
-            <EffectsPanel data={d} setData={setD} selected={sel} setSelected={setSel} />
-          </Section>
-
-          <Section title="Signatures, logo & seal" open={false}>
-            {d.sigs.map((s, i) => (
-              <div key={i} className="grid grid-cols-2 gap-4">
-                <Field label={`Signatory ${i + 1} name`} id={`sn${i}`}><input id={`sn${i}`} className="field" value={s.name} onChange={(e) => setSig(i, "name", e.target.value)} /></Field>
-                <Field label="Role" id={`sr${i}`}><input id={`sr${i}`} className="field" value={s.role} onChange={(e) => setSig(i, "role", e.target.value)} /></Field>
-              </div>
-            ))}
-            <Field label="Logo (PNG / JPG / SVG, shown at the top)" id="logo">
-              <input id="logo" type="file" accept="image/*" className="field" onChange={(e) => onLogo(e.target.files?.[0])} />
-              {d.logo && <Button variant="certificate" size="certificate" type="button" className="mt-2 text-xs text-brand underline" onClick={() => set("logo", "")}>Remove logo</Button>}
-            </Field>
-            <div className="grid grid-cols-2 items-end gap-4">
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={d.showSeal} onChange={(e) => set("showSeal", e.target.checked)} className="accent-brand" /> Show seal</label>
-              <Field label="Seal text (optional, ≤ 8 chars)" id="seal"><input id="seal" maxLength={8} className="field" value={d.sealText} onChange={(e) => set("sealText", e.target.value)} placeholder="★ if empty" /></Field>
-            </div>
-          </Section>
-
-          <Section title="Bulk: one certificate per name" open={false}>
-            <Field label={`Names, one per line (${list.length}${list.length > MAX_BATCH ? ` — max ${MAX_BATCH}` : ""})`} id="names">
-              <textarea id="names" rows={6} className="field font-mono" value={names} onChange={(e) => setNames(e.target.value)} />
-            </Field>
-            <Field label="Output" id="fmt">
-              <select id="fmt" className="field" value={fmt} onChange={(e) => setFmt(e.target.value as BatchFormat)}>
-                <option value="pdf-zip">Separate PDFs (.zip)</option>
-                <option value="png-zip">Separate PNG images (.zip)</option>
-                <option value="pdf-one">One combined PDF</option>
-              </select>
-              <p className="mt-1.5 text-xs text-muted">Certificate IDs count up automatically from the ID above (CERT-2026-001, -002, …).</p>
-            </Field>
-            <Button variant="certificate" size="certificate"
-              type="button"
-              className="btn btn-primary"
-              disabled={!!busy || list.length === 0 || list.length > MAX_BATCH}
-              onClick={() =>
-                run("batch", async () => {
-                  const r = await batchExport(list, d, fmt, (a, b) => setProgress([a, b]));
-                  download(r.blob, r.filename);
-                })
-              }
-            >
-              {busy === "batch" && progress ? `Generating ${progress[0]} / ${progress[1]}…` : `Generate ${list.length} certificate${list.length === 1 ? "" : "s"}`}
+              </dl>
+            </Group>
+            <Button variant="certificate" size="certificate" type="button" className="btn" onClick={() => { if (confirm("Reset everything to the defaults?")) setD(DEFAULT_DATA); }}>
+              <RotateCcw aria-hidden /> Reset design
             </Button>
-          </Section>
-        </div>
-
-        <div className="order-1 grid content-start gap-4 lg:sticky lg:top-4 lg:order-2 lg:self-start">
-          <Preview data={d} selected={sel} onSelect={setSel} />
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="certificate" size="certificate" type="button" className="btn btn-primary" disabled={!!busy} onClick={() => run("pdf", async () => download(await pdfBlob(d), `${slug}.pdf`))}>
-              {busy === "pdf" ? "Preparing…" : "Download PDF"}
-            </Button>
-            <Button variant="certificate" size="certificate" type="button" className="btn" disabled={!!busy} onClick={() => run("png", async () => download(await pngBlob(d), `${slug}.png`))}>
-              {busy === "png" ? "Preparing…" : "Download PNG"}
-            </Button>
-            <Button variant="certificate" size="certificate" type="button" className="btn" onClick={() => { if (confirm("Reset everything to the defaults?")) setD(DEFAULT_DATA); }}>Reset</Button>
           </div>
-          {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
-          <p className="text-xs text-muted">Everything happens in your browser — names and logos are never uploaded. Your last design is remembered on this device.</p>
-        </div>
-      </main>
+        </aside>
+      </div>
+
+      {/* sticky export bar on small screens */}
+      <div className="sticky bottom-0 z-30 flex items-center gap-2 border-t border-line bg-card/95 px-3 py-2 backdrop-blur md:hidden">
+        <Layers className="size-4 text-muted" aria-hidden />
+        <span className="mr-auto truncate text-xs text-muted">{d.recipient}</span>
+        {exportButtons}
+      </div>
     </div>
   );
 }
