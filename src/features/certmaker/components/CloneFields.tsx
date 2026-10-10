@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { AlignCenter, AlignLeft, AlignRight, Crosshair, Plus, Trash2, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import CloneAiPanel from "./CloneAiPanel";
 import { addManualField, autoMapFields, patchField, promoteSuggestion, removeField } from "../lib/clone";
 import type { CloneAlign, CloneKind, CloneSource, CloneTextField } from "../lib/types";
 
@@ -16,6 +17,8 @@ interface Props {
   onSelect: (id: string | null) => void;
   /** CSV columns plus built-in variables, offered as {{variable}} shortcuts. */
   variables: string[];
+  /** CSV column names only (used by AI column matching). */
+  headers: string[];
   picking: PickTarget | null;
   onPick: (target: PickTarget | null) => void;
 }
@@ -37,7 +40,7 @@ const GEOMETRY = [
 
 const MEGAPIXELS_WARN = 16.7;
 
-export default function CloneFields({ clone, edit, selected, onSelect, variables, picking, onPick }: Props) {
+export default function CloneFields({ clone, edit, selected, onSelect, variables, headers, picking, onPick }: Props) {
   useEffect(() => {
     if (selected) document.getElementById(`card-${selected}`)?.scrollIntoView({ block: "nearest" });
   }, [selected]);
@@ -78,6 +81,8 @@ export default function CloneFields({ clone, edit, selected, onSelect, variables
           <Wand2 aria-hidden /> Fill from CSV columns
         </Button>
       </div>
+
+      <CloneAiPanel clone={clone} headers={headers} edit={edit} onSelect={onSelect} />
 
       {picking && (
         <p role="status" className="flex items-center justify-between gap-2 rounded-lg border border-brand bg-secondary p-2 text-xs">

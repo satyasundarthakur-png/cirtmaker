@@ -125,7 +125,8 @@ function styleFromHint(hint: string): Pick<CloneTextField, "font" | "bold" | "it
   return { font: script ? "Great Vibes" : serif ? "Playfair Display" : "Inter", bold: bold && !script, italic: italic && !script };
 }
 
-function toField(d: Detected, id: string, page: { w: number; h: number }): CloneTextField {
+/** Build an editable field from a detected piece of text. Shared by OCR/PDF detection and optional AI detection. */
+export function fieldFromDetected(d: Detected, id: string, page: { w: number; h: number }): CloneTextField {
   const size = Math.max(8, d.size);
   const padX = Math.max(3, size * 0.15);
   const padY = Math.max(2, size * 0.12);
@@ -149,9 +150,9 @@ function toField(d: Detected, id: string, page: { w: number; h: number }): Clone
 function detectionToFields(items: RawItem[], page: { w: number; h: number }) {
   const { fields, rest } = detectFields(buildLines(items), page);
   let n = 0;
-  const editable = fields.map((d) => toField(d, `clone-${n++}`, page));
+  const editable = fields.map((d) => fieldFromDetected(d, `clone-${n++}`, page));
   const others = rest.slice(0, MAX_SUGGESTIONS).map((l) =>
-    toField({ kind: "custom", label: "Other text", box: { x: l.x, y: l.y, w: l.w, h: l.h }, text: l.text, size: l.size, fontHint: l.fontHint }, `clone-${n++}`, page),
+    fieldFromDetected({ kind: "custom", label: "Other text", box: { x: l.x, y: l.y, w: l.w, h: l.h }, text: l.text, size: l.size, fontHint: l.fontHint }, `clone-${n++}`, page),
   );
   return { fields: editable, suggestions: others };
 }
@@ -283,7 +284,7 @@ export const KIND_VARIABLE: Record<CloneKind, string | null> = { name: "name", c
 
 const byPosition = (a: CloneTextField, b: CloneTextField) => a.y - b.y || a.x - b.x;
 
-function nextIndex(c: CloneSource) {
+export function nextIndex(c: CloneSource) {
   const nums = [...c.fields, ...c.suggestions].map((f) => Number(/^clone-(\d+)$/.exec(f.id)?.[1] ?? -1));
   return Math.max(-1, ...nums) + 1;
 }

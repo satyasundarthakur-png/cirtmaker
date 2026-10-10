@@ -349,7 +349,7 @@ export default function CertificateMaker() {
               </>
             )}
 
-            {tab === "content" && d.cloneMode && <><PanelHeading title="Text fields" subtitle="Original certificate locked" />{d.clone ? <CloneFields clone={d.clone} edit={editClone} selected={sel} onSelect={setSel} variables={varChoices} picking={pick} onPick={setPick} /> : <p className="text-sm text-muted">Upload an original certificate first.</p>}</>}
+            {tab === "content" && d.cloneMode && <><PanelHeading title="Text fields" subtitle="Original certificate locked" />{d.clone ? <CloneFields clone={d.clone} edit={editClone} selected={sel} onSelect={setSel} variables={varChoices} headers={ds.headers} picking={pick} onPick={setPick} /> : <p className="text-sm text-muted">Upload an original certificate first.</p>}</>}
             {tab === "content" && !d.cloneMode && (
               <>
                 <PanelHeading title="Content" subtitle="The words on the certificate." />
@@ -587,7 +587,7 @@ export default function CertificateMaker() {
         <main className="order-1 min-w-0 flex-1 lg:order-2 lg:overflow-auto" aria-label="Certificate canvas">
           <div className="checker min-h-[40vh] p-4 sm:p-8 lg:min-h-full">
              {d.cloneMode && !d.clone ? <div className="grid min-h-[40vh] place-items-center text-sm text-muted">No original certificate loaded</div> : <Preview data={shown} selected={sel} onSelect={selectElement} zoom={zoom} cloneEdit={cloneEdit} />}
-            <p className="mt-6 text-center text-xs text-muted">Everything happens in your browser — names and logos are never uploaded.</p>
+            <p className="mt-6 text-center text-xs text-muted">{d.cloneMode ? "Everything stays in your browser. Only the optional AI detection sends the template image to Google." : "Everything happens in your browser — names and logos are never uploaded."}</p>
           </div>
         </main>
 
