@@ -1,3 +1,18 @@
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/space-grotesk/700.css";
+@import "@fontsource/playfair-display/400.css";
+@import "@fontsource/playfair-display/700.css";
+@import "@fontsource/great-vibes/400.css";
+@import "@fontsource/cormorant-garamond/500.css";
+@import "@fontsource/cormorant-garamond/700.css";
+@import "@fontsource/montserrat/600.css";
+@import "@fontsource/montserrat/700.css";
+@import "@fontsource/noto-sans-oriya/400.css";
+@import "@fontsource/noto-sans-oriya/700.css";
+@import "@fontsource/noto-sans-devanagari/400.css";
+@import "@fontsource/noto-sans-devanagari/700.css";
 @import "tailwindcss" source(none);
 @source "../src";
 @import "tw-animate-css";
@@ -142,3 +157,50 @@
     color: var(--color-foreground);
   }
 }
+
+@theme inline {
+  --color-paper: var(--background);
+  --color-ink: var(--foreground);
+  --color-line: var(--border);
+  --color-brand: var(--primary);
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --shadow-certificate: var(--certificate-shadow);
+}
+:root {
+  --radius: 0.5rem;
+  --background: oklch(0.970 0.006 95);
+  --foreground: oklch(0.21 0.005 260);
+  --card: oklch(1 0 0);
+  --primary: oklch(0.536 0.085 199);
+  --primary-foreground: oklch(1 0 0);
+  --muted: oklch(0.536 0.009 260);
+  --muted-foreground: var(--muted);
+  --border: oklch(0.912 0.009 95);
+  --input: var(--border);
+  --ring: var(--primary);
+  --checker-color: oklch(0.938 0.009 95);
+  --certificate-shadow: 0 1px 2px oklch(0 0 0 / 0.05);
+  --certificate-icon-ink: oklch(0.253 0.060 266);
+  --certificate-icon-paper: oklch(0.994 0.009 95);
+  --certificate-icon-gold: oklch(0.727 0.114 85);
+}
+html { -webkit-text-size-adjust: 100%; }
+body { @apply bg-paper text-ink font-sans antialiased; }
+.logo-svg > svg { width: 100%; height: 100%; display: block; }
+.checker {
+  background-image: linear-gradient(45deg, var(--checker-color) 25%, transparent 25%), linear-gradient(-45deg, var(--checker-color) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker-color) 75%), linear-gradient(-45deg, transparent 75%, var(--checker-color) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.btn { @apply inline-flex items-center justify-center gap-2 rounded-lg border border-line bg-card px-3.5 py-2 text-sm font-semibold transition hover:border-ink/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand; }
+.btn-primary { @apply border-brand bg-brand text-primary-foreground hover:bg-brand/90 hover:border-brand; }
+.chip { @apply rounded-full border border-line bg-card px-3 py-1 text-sm transition hover:border-ink/40; }
+.chip[aria-pressed="true"] { @apply border-brand bg-brand text-primary-foreground; }
+.field { @apply w-full rounded-lg border border-line bg-card px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand; }
+.label { @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+* { letter-spacing: 0; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
