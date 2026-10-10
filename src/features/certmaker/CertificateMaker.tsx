@@ -10,6 +10,7 @@ import { DEFAULT_DATA, type CertData, type FontSet } from "@/features/certmaker/
 import { FONT_SETS } from "@/features/certmaker/lib/themes";
 import { REGION_LABELS } from "@/features/certmaker/lib/render";
 import { useHistory } from "@/features/certmaker/lib/history";
+import { shrinkImage } from "@/features/certmaker/lib/image";
 import { batchExport, download, exportWith, fileSafe, type BatchFormat } from "@/features/certmaker/lib/exporter";
 import { DPI_MAX, DPI_MIN, PROFILES, clampDpi, pixelWidth, type ExportFormat, type ExportProfile } from "@/features/certmaker/lib/exporter-utils";
 import { applyKit, kitFrom, loadKits, saveKits, type BrandKit } from "@/features/certmaker/lib/brand";
@@ -134,9 +135,9 @@ export default function CertificateMaker() {
   function onSigImg(i: number, file?: File) {
     if (!file) return;
     if (file.size > 1_500_000) return setErr("Signature image is over 1.5 MB — please use a smaller one.");
-    const r = new FileReader();
-    r.onload = () => setD((p) => ({ ...p, sigImgs: [0, 1].map((j) => (j === i ? String(r.result) : (p.sigImgs[j] ?? ""))) }));
-    r.readAsDataURL(file);
+    shrinkImage(file, 600)
+      .then((u) => setD((p) => ({ ...p, sigImgs: [0, 1].map((j) => (j === i ? u : (p.sigImgs[j] ?? ""))) })))
+      .catch((e: unknown) => setErr(e instanceof Error ? e.message : "That image could not be read."));
   }
   useEffect(() => {
     let live = true;
@@ -191,9 +192,7 @@ export default function CertificateMaker() {
   function onLogo(file?: File) {
     if (!file) return;
     if (file.size > 3_000_000) return setErr("Logo is over 3 MB — please use a smaller image.");
-    const r = new FileReader();
-    r.onload = () => set("logo", String(r.result));
-    r.readAsDataURL(file);
+    shrinkImage(file).then((u) => set("logo", u)).catch((e: unknown) => setErr(e instanceof Error ? e.message : "That image could not be read."));
   }
 
   // Clicking a part of the certificate opens its text box so the name/text can be edited right away.

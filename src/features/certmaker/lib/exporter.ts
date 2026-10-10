@@ -34,17 +34,37 @@ export async function pngBlob(d: CertData): Promise<Blob> {
 
 /** Render one certificate using an export profile (format, dpi, quality). */
 export async function exportWith(d: CertData, p: Pick<ExportProfile, "format" | "dpi" | "quality">): Promise<{ blob: Blob; ext: string }> {
-  const c = await canvasFor(d, pixelWidth(d.paper, p.dpi));
+  // Phones/tablets can refuse very large canvases (e.g. iOS ≈ 16 MP). Retry a little smaller instead of failing.
+  const full = pixelWidth(d.paper, p.dpi);
+  let lastErr: unknown;
+  for (const w of [full, Math.round(full * 0.75), Math.round(full * 0.55)]) {
+    try {
+      return await exportAt(d, p, w);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("export failed");
+}
+
+const dataUrl = (c: HTMLCanvasElement, type: string, q?: number) => {
+  const u = c.toDataURL(type, q);
+  if (u.length < 32) throw new Error("export failed"); // browsers return "data:," when the canvas is too large
+  return u;
+};
+
+async function exportAt(d: CertData, p: Pick<ExportProfile, "format" | "dpi" | "quality">, widthPx: number): Promise<{ blob: Blob; ext: string }> {
+  const c = await canvasFor(d, widthPx);
   const ext = EXT[p.format];
   if (p.format === "png") return { blob: await toBlob(c, "image/png"), ext };
   if (p.format === "jpeg") return { blob: await toBlob(c, "image/jpeg", p.quality), ext };
   if (p.format === "svg") {
     const [w, h] = PAPER_MM[d.paper];
-    const svg = svgWrap(c.toDataURL("image/png"), w, h, c.width, c.height);
+    const svg = svgWrap(dataUrl(c, "image/png"), w, h, c.width, c.height);
     return { blob: new Blob([svg], { type: "image/svg+xml" }), ext };
   }
   const { pdf, w, h } = await newPdf(d);
-  pdf.addImage(c.toDataURL("image/jpeg", p.quality), "JPEG", 0, 0, w, h);
+  pdf.addImage(dataUrl(c, "image/jpeg", p.quality), "JPEG", 0, 0, w, h);
   return { blob: pdf.output("blob"), ext };
 }
 

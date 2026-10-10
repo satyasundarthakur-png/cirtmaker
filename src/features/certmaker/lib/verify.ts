@@ -111,7 +111,7 @@ const REG_MAX = 5000;
 export function loadRegister(): Issued[] {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(REG_KEY) ?? "[]");
-    return Array.isArray(v) ? (v as Issued[]) : [];
+    return Array.isArray(v) ? (v as Issued[]).filter((x) => !!x && typeof x === "object" && typeof x.id === "string") : [];
   } catch {
     return [];
   }

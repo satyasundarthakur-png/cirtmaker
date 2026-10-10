@@ -70,7 +70,7 @@ function VerifyPage() {
     icon = <BadgeCheck className="size-6 text-emerald-600" aria-hidden />;
     heading = "Record is intact";
     text = issued
-      ? "The details match their checksum and this certificate is in the issuer's register."
+      ? "The details match their checksum and this certificate ID is also in this browser's issue register."
       : "The details match their checksum. They have not been changed since the QR code was created.";
   } else if (issued) {
     tone = "border-emerald-500";

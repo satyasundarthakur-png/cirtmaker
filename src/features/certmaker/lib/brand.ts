@@ -59,7 +59,9 @@ export function applyKit(d: CertData, k: BrandKit): CertData {
 export function loadKits(): BrandKit[] {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(KEY) ?? "[]");
-    return Array.isArray(v) ? (v as BrandKit[]) : [];
+    return Array.isArray(v)
+      ? (v as BrandKit[]).filter((k) => !!k && typeof k === "object" && typeof k.id === "string" && Array.isArray(k.sigs) && Array.isArray(k.sigImgs))
+      : [];
   } catch {
     return [];
   }

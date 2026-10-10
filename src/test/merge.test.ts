@@ -63,3 +63,17 @@ describe("certForRow", () => {
     expect(normaliseHeader(" Certificate ID ")).toBe("certificate_id");
   });
 });
+
+describe("header handling", () => {
+  it("recognises common name column titles", () => {
+    for (const h of ["Student Name", "Participant Name", "Candidate", "Attendee"]) {
+      expect(parseDataset(`${h},Course\nAsha,AI`).rows[0]?.name).toBe("Asha");
+    }
+  });
+  it("keeps repeated column titles instead of overwriting", () => {
+    const ds = parseDataset("Name,Score,Score\nAsha,80,90");
+    expect(ds.headers).toEqual(["name", "score", "score_2"]);
+    expect(ds.rows[0]?.["score"]).toBe("80");
+    expect(ds.rows[0]?.["score_2"]).toBe("90");
+  });
+});

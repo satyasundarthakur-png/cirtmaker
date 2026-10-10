@@ -32,6 +32,21 @@ const ALIASES: Record<string, string> = {
   programme: "course",
   workshop: "course",
   marks: "score",
+  student_name: "name",
+  participant_name: "name",
+  recipient_name: "name",
+  candidate_name: "name",
+  candidate: "name",
+  attendee: "name",
+  attendee_name: "name",
+  delegate: "name",
+  delegate_name: "name",
+  awardee: "name",
+  trainee: "name",
+  certificate_no: "certificate_id",
+  certificate_number: "certificate_id",
+  cert_no: "certificate_id",
+  percentage: "score",
 };
 
 export function normaliseHeader(h: string): string {
@@ -99,7 +114,14 @@ export function parseDataset(text: string): Dataset {
   if (!multi && !hasNameHeader) {
     return { headers: ["name"], rows: table.map((r) => ({ name: (r[0] ?? "").trim() })).filter((r) => r.name) };
   }
-  const headers = first.map((h, i) => h || `column_${i + 1}`);
+  // blank headers get a placeholder; repeated headers get _2, _3 so no column silently overwrites another
+  const seen = new Map<string, number>();
+  const headers = first.map((h, i) => {
+    const base = h || `column_${i + 1}`;
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return n === 1 ? base : `${base}_${n}`;
+  });
   const rows = table.slice(1).map((cells) => {
     const r: Row = {};
     headers.forEach((h, i) => {

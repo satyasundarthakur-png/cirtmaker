@@ -17,6 +17,7 @@ export default function TemplatePicker({ data, onPick }: Props) {
     const t = setTimeout(async () => {
       const out: Record<string, string> = {};
       for (const th of list) {
+        if (!live) return;
         const c = document.createElement("canvas");
         await renderToCanvas(c, { ...data, template: th.id, bgMode: th.id === data.template ? data.bgMode : "recreate", accent: th.id === data.template ? data.accent : th.accent }, 360);
         out[th.id] = c.toDataURL("image/jpeg", 0.8);
