@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import type { CertData } from "@/features/certmaker/lib/types";
+import type { CertData, CloneSource, CloneTextField } from "@/features/certmaker/lib/types";
+import CloneOverlay from "./CloneOverlay";
 import { certHeight, renderToCanvas, type Region } from "@/features/certmaker/lib/render";
+
+/** Clone Mode editing hooks: boxes on top of the locked original, plus the colour picker. */
+export interface CloneEdit {
+  /** The template being edited. May differ in text from the preview when a CSV row is being previewed. */
+  clone: CloneSource;
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  onChange: (id: string, patch: Partial<CloneTextField>) => void;
+  onRemove: (id: string) => void;
+  /** When set, the next click on the certificate reports the original-image pixel clicked. */
+  onPixel?: ((x: number, y: number) => void) | undefined;
+}
 
 interface Props {
   data: CertData;
@@ -8,9 +21,11 @@ interface Props {
   onSelect: (id: string | null) => void;
   /** 1 = fit to the available width. */
   zoom?: number;
+  /** The template (not the CSV-filled preview) whose boxes the user edits. Clone Mode only. */
+  cloneEdit?: CloneEdit | undefined;
 }
 
-export default function Preview({ data, selected, onSelect, zoom = 1 }: Props) {
+export default function Preview({ data, selected, onSelect, zoom = 1, cloneEdit }: Props) {
   const renderW = Math.min(3000, Math.round(1400 * Math.max(1, zoom)));
   const ref = useRef<HTMLCanvasElement>(null);
   const [busy, setBusy] = useState(true);
@@ -41,6 +56,12 @@ export default function Preview({ data, selected, onSelect, zoom = 1 }: Props) {
 
   function click(e: MouseEvent<HTMLDivElement>) {
     const r = e.currentTarget.getBoundingClientRect();
+    if (cloneEdit) {
+      const c = cloneEdit.clone;
+      if (cloneEdit.onPixel) cloneEdit.onPixel(((e.clientX - r.left) / r.width) * c.width, ((e.clientY - r.top) / r.height) * c.height);
+      else cloneEdit.onSelect(null);
+      return;
+    }
     const x = ((e.clientX - r.left) / r.width) * 1000;
     const y = ((e.clientY - r.top) / r.height) * H;
     const hit = regions
@@ -52,9 +73,12 @@ export default function Preview({ data, selected, onSelect, zoom = 1 }: Props) {
   const sel = regions.find((g) => g.id === selected);
 
   return (
-    <div className="relative mx-auto cursor-pointer overflow-hidden rounded-sm border border-line bg-card shadow-[0_10px_40px_-12px_rgba(15,23,42,0.35)]" style={{ width: `${zoom * 100}%` }} onClick={click}>
-      <canvas ref={ref} className="block h-auto w-full" role="img" aria-label={`Certificate preview for ${data.recipient}. Click a part of the certificate to edit its text.`} />
-      {sel && (
+    <div className={`relative mx-auto ${cloneEdit?.onPixel ? "cursor-crosshair" : "cursor-pointer"} overflow-hidden rounded-sm border border-line bg-card shadow-[0_10px_40px_-12px_rgba(15,23,42,0.35)]`} style={{ width: `${zoom * 100}%` }} onClick={click}>
+      <canvas ref={ref} className="block h-auto w-full" role="img" aria-label={cloneEdit ? "Original certificate with editable text boxes on top." : `Certificate preview for ${data.recipient}. Click a part of the certificate to edit its text.`} />
+      {cloneEdit && (
+        <CloneOverlay clone={cloneEdit.clone} selected={cloneEdit.selected} passive={!!cloneEdit.onPixel} onSelect={cloneEdit.onSelect} onChange={cloneEdit.onChange} onRemove={cloneEdit.onRemove} />
+      )}
+      {sel && !cloneEdit && (
         <div
           aria-hidden
           className="pointer-events-none absolute rounded border-2 border-dashed border-brand"

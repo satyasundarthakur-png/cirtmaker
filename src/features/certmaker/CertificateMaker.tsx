@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Braces, ExternalLink, PenTool, QrCode, Trash2, Download, Image as ImageIcon, LayoutTemplate, Layers, Maximize2, Palette, PenLine, Redo2, RotateCcw, Stamp, Table2, Undo2, Upload, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import CloneFields from "@/features/certmaker/components/CloneFields";
+import CloneFields, { type PickTarget } from "@/features/certmaker/components/CloneFields";
+import { patchField, removeField, samplePixel } from "@/features/certmaker/lib/clone";
+import type { CloneEdit } from "@/features/certmaker/components/Preview";
 import Preview from "@/features/certmaker/components/Preview";
 import TemplatePicker from "@/features/certmaker/components/TemplatePicker";
 import ReferencePanel from "@/features/certmaker/components/ReferencePanel";
@@ -60,6 +62,7 @@ export default function CertificateMaker() {
   }, []);
   const [csv, setCsv] = useState(SAMPLE_CSV);
   const [previewRow, setPreviewRow] = useState<number | null>(null);
+  const [pick, setPick] = useState<PickTarget | null>(null);
   const [register, setRegister] = useState<Issued[]>([]);
   const [vUrl, setVUrl] = useState("");
   const [kits, setKits] = useState<BrandKit[]>([]);
@@ -101,6 +104,30 @@ export default function CertificateMaker() {
   const shown = useMemo(() => (rowIdx !== null && ds.rows[rowIdx] ? certForRow(d, ds.rows[rowIdx], rowIdx) : d), [d, ds, rowIdx]);
   const slug = fileSafe(shown.recipient) || "certificate";
   const varChoices = useMemo(() => [...new Set<string>([...BUILT_IN_VARS, ...ds.headers])], [ds.headers]);
+
+  // Clone Mode: every edit (panel or on-canvas) changes the template, never the CSV-filled preview.
+  const editClone = (fn: (c: NonNullable<CertData["clone"]>) => NonNullable<CertData["clone"]>) =>
+    setD((p) => (p.clone ? { ...p, clone: fn(p.clone) } : p));
+  const cloneEdit: CloneEdit | undefined =
+    d.cloneMode && d.clone
+      ? {
+          clone: d.clone,
+          selected: sel,
+          onSelect: (id) => { setSel(id); if (id) setTab("content"); },
+          onChange: (id, patch) => editClone((c) => patchField(c, id, patch)),
+          onRemove: (id) => { editClone((c) => removeField(c, id)); setSel(null); },
+          onPixel: pick
+            ? (x, y) => {
+                const target = pick;
+                const src = d.clone?.image ?? "";
+                setPick(null);
+                samplePixel(src, x, y)
+                  .then((hex) => editClone((c) => patchField(c, target.id, { [target.prop]: hex })))
+                  .catch((e: unknown) => setErr(e instanceof Error ? e.message : "Could not read that colour."));
+              }
+            : undefined,
+        }
+      : undefined;
   useEffect(() => setRegister(loadRegister()), [tab]);
   useEffect(() => {
     setKits(loadKits());
@@ -322,7 +349,7 @@ export default function CertificateMaker() {
               </>
             )}
 
-            {tab === "content" && d.cloneMode && <><PanelHeading title="Text fields" subtitle="Original certificate locked" /><CloneFields data={d} setData={setD} selected={sel} onSelect={setSel} /></>}
+            {tab === "content" && d.cloneMode && <><PanelHeading title="Text fields" subtitle="Original certificate locked" />{d.clone ? <CloneFields clone={d.clone} edit={editClone} selected={sel} onSelect={setSel} variables={varChoices} picking={pick} onPick={setPick} /> : <p className="text-sm text-muted">Upload an original certificate first.</p>}</>}
             {tab === "content" && !d.cloneMode && (
               <>
                 <PanelHeading title="Content" subtitle="The words on the certificate." />
@@ -559,7 +586,7 @@ export default function CertificateMaker() {
         {/* canvas */}
         <main className="order-1 min-w-0 flex-1 lg:order-2 lg:overflow-auto" aria-label="Certificate canvas">
           <div className="checker min-h-[40vh] p-4 sm:p-8 lg:min-h-full">
-             {d.cloneMode && !d.clone ? <div className="grid min-h-[40vh] place-items-center text-sm text-muted">No original certificate loaded</div> : <Preview data={shown} selected={sel} onSelect={selectElement} zoom={zoom} />}
+             {d.cloneMode && !d.clone ? <div className="grid min-h-[40vh] place-items-center text-sm text-muted">No original certificate loaded</div> : <Preview data={shown} selected={sel} onSelect={selectElement} zoom={zoom} cloneEdit={cloneEdit} />}
             <p className="mt-6 text-center text-xs text-muted">Everything happens in your browser — names and logos are never uploaded.</p>
           </div>
         </main>

@@ -27,8 +27,14 @@ export interface CustomStyle {
 
 export type BgMode = "recreate" | "image";
 
+export type CloneKind = "name" | "certId" | "date" | "course" | "custom";
+export type CloneAlign = "left" | "center" | "right";
+
+/** One editable text rectangle laid over the locked original. All numbers are pixels of the original image. */
 export interface CloneTextField {
   id: string;
+  kind: CloneKind;
+  label: string;
   original: string;
   replacement: string;
   x: number;
@@ -37,16 +43,26 @@ export interface CloneTextField {
   h: number;
   fontSize: number;
   font: string;
+  bold: boolean;
+  italic: boolean;
+  align: CloneAlign;
   color: string;
+  /** Flat patch painted under the new text to hide the original words. "" = leave the original pixels untouched. */
   cover: string;
 }
 
 export interface CloneSource {
+  /** The uploaded artwork exactly as supplied (PDFs are rendered once at print resolution). Never re-drawn or altered. */
   image: string;
   width: number;
   height: number;
   filename: string;
+  kind: "image" | "pdf";
+  /** Physical page size when the source is a PDF. */
+  pageMm?: [number, number];
   fields: CloneTextField[];
+  /** Other text found on the certificate. Not editable unless the user promotes it. */
+  suggestions: CloneTextField[];
 }
 
 export interface CertData {

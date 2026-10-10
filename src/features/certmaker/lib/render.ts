@@ -4,7 +4,7 @@ import { metalById, metalGradient, type Metal } from "./metals";
 import { qrMatrix } from "./qr";
 import { verifyUrl } from "./verify";
 import { paintWithEffect, type Box, type DrawFn, type Fx, type Paint } from "./effects";
-import { paintCloneFields } from "./clone";
+import { fontCss, isActive, loadCloneImage, paintCloneFields } from "./clone";
 
 type Ctx = CanvasRenderingContext2D;
 const W = 1000;
@@ -239,8 +239,33 @@ export function certHeight(d: CertData) {
   return W / PAPER_RATIO[d.paper];
 }
 
+/**
+ * Clone Mode drawing. The original is painted first, edge to edge, with no transform: at native width it is a
+ * 1:1 pixel copy. Text fields are then painted in the original's own pixel coordinates.
+ */
+async function drawClone(canvas: HTMLCanvasElement, d: CertData, widthPx: number): Promise<Region[]> {
+  const clone = d.clone;
+  if (!clone) return [];
+  canvas.width = Math.round(widthPx);
+  canvas.height = Math.round((widthPx * clone.height) / clone.width);
+  const c = canvas.getContext("2d");
+  if (!c) throw new Error("Canvas rendering is unavailable in this browser.");
+  const original = await loadCloneImage(clone.image);
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.imageSmoothingEnabled = canvas.width !== clone.width; // never resample when exporting at native size
+  c.imageSmoothingQuality = "high";
+  c.drawImage(original, 0, 0, canvas.width, canvas.height);
+  const k = canvas.width / clone.width;
+  c.setTransform(k, 0, 0, k, 0, 0);
+  paintCloneFields(c, clone.fields);
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  const scale = W / clone.width;
+  return clone.fields.map((f) => ({ id: f.id, label: f.label, x: f.x * scale, y: f.y * scale, w: f.w * scale, h: f.h * scale }));
+}
+
 /** Draw the whole certificate into `canvas` at the given pixel width. Fonts must already be loaded. */
 export async function drawCertificate(canvas: HTMLCanvasElement, d: CertData, widthPx: number): Promise<Region[]> {
+  if (d.cloneMode) return drawClone(canvas, d, widthPx);
   const H = certHeight(d);
   canvas.width = Math.round(widthPx);
   canvas.height = Math.round((widthPx * H) / W);
@@ -248,18 +273,6 @@ export async function drawCertificate(canvas: HTMLCanvasElement, d: CertData, wi
   if (!c) throw new Error("Canvas rendering is unavailable in this browser.");
   const k = canvas.width / W;
   c.setTransform(k, 0, 0, k, 0, 0);
-
-  if (d.cloneMode) {
-    if (!d.clone) return [];
-    const original = await loadImg(d.clone.image);
-    c.drawImage(original, 0, 0, W, H);
-    const scale = W / d.clone.width;
-    c.save();
-    c.scale(scale, scale);
-    paintCloneFields(c, d.clone.fields);
-    c.restore();
-    return d.clone.fields.map((field) => ({ id: field.id, label: field.original, x: field.x * scale, y: field.y * scale, w: field.w * scale, h: field.h * scale }));
-  }
 
   const theme = resolveTheme(d);
   const f = FONT_SETS[d.fontSet].stack;
@@ -429,7 +442,7 @@ export async function drawCertificate(canvas: HTMLCanvasElement, d: CertData, wi
 
 export async function renderToCanvas(canvas: HTMLCanvasElement, d: CertData, widthPx: number): Promise<Region[]> {
   if (d.cloneMode) {
-    await Promise.all((d.clone?.fields ?? []).filter((f) => f.replacement !== f.original).map((f) => document.fonts.load(`${f.fontSize}px "${f.font}"`, f.replacement || "A").catch(() => [])));
+    await Promise.all((d.clone?.fields ?? []).filter(isActive).map((f) => document.fonts.load(fontCss(f, f.fontSize), f.replacement || "A").catch(() => [])));
   } else await ensureFonts(d);
   return drawCertificate(canvas, d, widthPx);
 }

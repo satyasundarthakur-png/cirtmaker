@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import { PAPER_MM, type CertData } from "./types";
+import { clonePageMm } from "./clone-geometry";
 import { renderToCanvas } from "./render";
 
 const EXPORT_W = 2339; // ≈200 dpi on A4
@@ -7,7 +8,12 @@ const EXPORT_W = 2339; // ≈200 dpi on A4
 export { fileSafe, nextId } from "./exporter-utils";
 import { EXT, fileSafe, pixelWidth, svgWrap, type ExportProfile } from "./exporter-utils";
 
-async function canvasFor(d: CertData, widthPx: number = EXPORT_W) {
+/** Clone Mode exports at the original's own pixel size so the artwork is never resampled. */
+export function exportWidth(d: CertData, dpi: number): number {
+  return d.cloneMode && d.clone ? d.clone.width : pixelWidth(d.paper, dpi);
+}
+
+async function canvasFor(d: CertData, widthPx: number = d.cloneMode && d.clone ? d.clone.width : EXPORT_W) {
   const c = document.createElement("canvas");
   await renderToCanvas(c, d, widthPx);
   return c;
@@ -22,17 +28,20 @@ async function newPdf(d: CertData) {
   return { pdf: new jsPDF({ orientation: w >= h ? "landscape" : "portrait", unit: "mm", format: [w, h], compress: true }), w, h };
 }
 
-function pageSize(d: CertData): [number, number] {
-  if (d.cloneMode && d.clone) {
-    const w = PAPER_MM[d.paper][0];
-    return [w, w * d.clone.height / d.clone.width];
-  }
+export function pageSize(d: CertData): [number, number] {
+  if (d.cloneMode && d.clone) return d.clone.pageMm ?? clonePageMm(d.clone.width, d.clone.height);
   return PAPER_MM[d.paper];
+}
+
+/** Clone Mode keeps print-quality PDFs lossless (PNG inside the PDF); everything else uses JPEG. */
+function addPageImage(pdf: Awaited<ReturnType<typeof newPdf>>["pdf"], c: HTMLCanvasElement, d: CertData, quality: number, w: number, h: number) {
+  if (d.cloneMode && quality >= 0.95) pdf.addImage(dataUrl(c, "image/png"), "PNG", 0, 0, w, h, undefined, "FAST");
+  else pdf.addImage(dataUrl(c, "image/jpeg", quality), "JPEG", 0, 0, w, h);
 }
 
 export async function pdfBlob(d: CertData): Promise<Blob> {
   const { pdf, w, h } = await newPdf(d);
-  pdf.addImage((await canvasFor(d)).toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, w, h);
+  addPageImage(pdf, await canvasFor(d), d, 0.93, w, h);
   return pdf.output("blob");
 }
 
@@ -44,7 +53,7 @@ export async function pngBlob(d: CertData): Promise<Blob> {
 export async function exportWith(d: CertData, p: Pick<ExportProfile, "format" | "dpi" | "quality">): Promise<{ blob: Blob; ext: string }> {
   if (d.cloneMode && !d.clone) throw new Error("Load an original certificate first.");
   // Phones/tablets can refuse very large canvases (e.g. iOS ≈ 16 MP). Retry a little smaller instead of failing.
-  const full = pixelWidth(d.paper, p.dpi);
+  const full = exportWidth(d, p.dpi);
   let lastErr: unknown;
   for (const w of [full, Math.round(full * 0.75), Math.round(full * 0.55)]) {
     try {
@@ -73,7 +82,7 @@ async function exportAt(d: CertData, p: Pick<ExportProfile, "format" | "dpi" | "
     return { blob: new Blob([svg], { type: "image/svg+xml" }), ext };
   }
   const { pdf, w, h } = await newPdf(d);
-  pdf.addImage(dataUrl(c, "image/jpeg", p.quality), "JPEG", 0, 0, w, h);
+  addPageImage(pdf, c, d, p.quality, w, h);
   return { blob: pdf.output("blob"), ext };
 }
 
@@ -95,7 +104,7 @@ export async function batchExport(
   for (let i = 0; i < items.length; i++) {
     const d = items[i];
     if (!d) continue;
-    const c = await canvasFor(d, pixelWidth(d.paper, dpi));
+    const c = await canvasFor(d, exportWidth(d, dpi));
     const label = `${String(i + 1).padStart(3, "0")}-${fileSafe(d.recipient) || "certificate"}`;
     if (format === "png-zip") {
       zip.file(`${label}.png`, await toBlob(c, "image/png"));
@@ -103,7 +112,7 @@ export async function batchExport(
       zip.file(`${label}.jpg`, await toBlob(c, "image/jpeg", quality));
     } else if (format === "pdf-zip") {
       const { pdf, w, h } = await newPdf(d);
-      pdf.addImage(c.toDataURL("image/jpeg", quality), "JPEG", 0, 0, w, h);
+      addPageImage(pdf, c, d, quality, w, h);
       zip.file(`${label}.pdf`, pdf.output("blob"));
     } else if (one) {
       if (i > 0) one.pdf.addPage([one.w, one.h], one.w >= one.h ? "landscape" : "portrait");

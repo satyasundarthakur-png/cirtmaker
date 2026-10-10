@@ -14,3 +14,4 @@
 - Keep uploaded UI styling in semantic global tokens and the certificate Button variant; this preserves its design through Tailwind v4.
 - Clone imports must use the isolated browser-only text detection module, never the reference style analyser; render the original first and change only explicit text rectangles to preserve locked artwork.
 - Keep clone source images session-only like reference images and preserve source aspect ratios in preview and exports; this avoids storage quota failures and stretching the original.
+- Clone Mode exports at the original's own pixel width (`exportWidth`) and sizes PDF pages from the source (`pageSize`); never resample or stretch the artwork. Keep text-field detection pure in `clone-detect.ts` and box geometry in `clone-geometry.ts` so both stay unit-tested.
