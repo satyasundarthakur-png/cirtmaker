@@ -258,7 +258,8 @@ export async function drawCertificate(canvas: HTMLCanvasElement, d: CertData, wi
       // Clear everything inside the frame (or the margin) so the original wording can't show through,
       // but keep the corner artwork: two overlapping rectangles form a cross-shaped cover.
       const cs = theme.id === "inspired" ? d.custom : null;
-      const inner = cs && cs.frames.length ? cs.frames[cs.frames.length - 1].inset + cs.frames[cs.frames.length - 1].width + 3 : 16;
+      const lastFrame = cs?.frames.at(-1);
+      const inner = lastFrame ? lastFrame.inset + lastFrame.width + 3 : 16;
       const kl = cs && cs.band > 0 ? cs.band + 4 : inner;
       const keep = Math.max(0, d.clearInset);
       c.fillStyle = theme.bg;
@@ -341,14 +342,16 @@ export async function drawCertificate(canvas: HTMLCanvasElement, d: CertData, wi
   const xs = [W * 0.22, W * 0.78].map((x) => x + shift);
   d.sigs.slice(0, 2).forEach((s, i) => {
     if (!s.name && !s.role) return;
+    const x = xs[i];
+    if (x === undefined) return;
     c.strokeStyle = theme.ink;
     c.lineWidth = 1;
     c.beginPath();
-    c.moveTo(xs[i] - 105, sigY);
-    c.lineTo(xs[i] + 105, sigY);
+    c.moveTo(x - 105, sigY);
+    c.lineTo(x + 105, sigY);
     c.stroke();
-    line(env, `sig${i}`, s.name, xs[i], sigY + 24, { font: (z) => `700 ${z}px ${f.body}`, size: 19, minSize: 12, color: theme.ink, maxW: 220 });
-    line(env, `sig${i}`, s.role, xs[i], sigY + 44, { font: (z) => `${f.bodyWeight} ${z}px ${f.body}`, size: 15, minSize: 10, color: theme.muted, maxW: 220 });
+    line(env, `sig${i}`, s.name, x, sigY + 24, { font: (z) => `700 ${z}px ${f.body}`, size: 19, minSize: 12, color: theme.ink, maxW: 220 });
+    line(env, `sig${i}`, s.role, x, sigY + 44, { font: (z) => `${f.bodyWeight} ${z}px ${f.body}`, size: 15, minSize: 10, color: theme.muted, maxW: 220 });
   });
   if (d.showSeal) {
     const sy = H - 150;

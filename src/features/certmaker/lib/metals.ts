@@ -2,7 +2,7 @@ export interface Metal {
   id: string;
   label: string;
   base: string;
-  stops: string[]; // six stops at 0, .22, .45, .62, .82, 1
+  stops: [string, string, string, string, string, string]; // six stops at 0, .22, .45, .62, .82, 1
 }
 
 export const METALS: Metal[] = [
@@ -18,7 +18,7 @@ const POS = [0, 0.22, 0.45, 0.62, 0.82, 1];
 
 export function metalGradient(c: CanvasRenderingContext2D, m: Metal, x: number, y: number, w: number, h: number) {
   const g = c.createLinearGradient(x, y, x + w * 0.6, y + h * 1.6);
-  m.stops.forEach((s, i) => g.addColorStop(POS[i], s));
+  m.stops.forEach((s, i) => g.addColorStop(POS[i] ?? 1, s));
   return g;
 }
 

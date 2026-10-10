@@ -30,7 +30,8 @@ export function toGrey(hex: string) {
 }
 
 export function rgbToCmykApprox(hex: string) {
-  const [r, g, b] = hexToRgb(hex).map((v) => v / 255);
+  const [r0, g0, b0] = hexToRgb(hex);
+  const r = r0 / 255, g = g0 / 255, b = b0 / 255;
   const k = 1 - Math.max(r, g, b);
   if (k === 1) return "0 0 0 100";
   const c = (1 - r - k) / (1 - k);

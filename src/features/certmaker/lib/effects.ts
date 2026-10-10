@@ -33,7 +33,7 @@ export type DrawFn = (c: Ctx, paint: Paint, mode?: "fill" | "stroke", lineWidth?
 function mixHex(a: string, b: string, t: number) {
   const A = hexToRgb(a);
   const B = hexToRgb(b);
-  return "#" + [0, 1, 2].map((i) => Math.round(A[i] + (B[i] - A[i]) * t).toString(16).padStart(2, "0")).join("");
+  return "#" + [0, 1, 2].map((i) => Math.round((A[i] ?? 0) + ((B[i] ?? 0) - (A[i] ?? 0)) * t).toString(16).padStart(2, "0")).join("");
 }
 const rgba = (h: string, a: number) => {
   const [r, g, b] = hexToRgb(h);

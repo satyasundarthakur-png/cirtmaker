@@ -50,7 +50,7 @@ export default function EffectsPanel({ data, setData, selected, setSelected }: P
       {selected ? (
         <>
           <div>
-            <span className="label">Colour of {REGION_LABELS[selected].toLowerCase()}</span>
+            <span className="label">Colour of {(REGION_LABELS[selected] ?? selected).toLowerCase()}</span>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(34px,1fr))] gap-2" role="group" aria-label="Colour">
               <Button variant="certificate" size="certificate" type="button" title="Default for this template" aria-label="Default colour" aria-pressed={!curColor} onClick={() => setColor(selected, null)} className={`grid h-8 place-items-center rounded-full border-2 bg-card text-[10px] font-semibold ${!curColor ? "border-ink" : "border-line"}`}>Auto</Button>
               {METALS.map((m) => (

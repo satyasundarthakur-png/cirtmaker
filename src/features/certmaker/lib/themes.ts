@@ -90,7 +90,7 @@ export const THEMES: Theme[] = [
         [W - 24, 24],
         [24, H - 24],
         [W - 24, H - 24],
-      ]) {
+      ] as [number, number][]) {
         c.beginPath();
         c.arc(x, y, 5, 0, TAU);
         c.fill();
@@ -157,7 +157,7 @@ export const THEMES: Theme[] = [
         [W, 0],
         [0, H],
         [W, H],
-      ]) {
+      ] as [number, number][]) {
         c.globalAlpha = 0.1;
         c.beginPath();
         c.arc(x, y, 190, 0, TAU);
@@ -233,8 +233,8 @@ export function themeFromCustom(cs: CustomStyle): Theme {
         const o = f.inset + f.width / 2;
         c.strokeRect(o, o, W - 2 * o, H - 2 * o);
       });
-      if (cs.corners && cs.frames.length) {
-        const f = cs.frames[cs.frames.length - 1];
+      const f = cs.frames.at(-1);
+      if (cs.corners && f) {
         const o = f.inset + f.width + 2;
         corner(c, o, o, 1, 1, a);
         corner(c, W - o, o, -1, 1, a);
@@ -247,5 +247,7 @@ export function themeFromCustom(cs: CustomStyle): Theme {
 
 export function resolveTheme(d: CertData): Theme {
   if (d.template === "inspired" && d.custom) return themeFromCustom(d.custom);
-  return THEMES.find((t) => t.id === d.template) ?? THEMES[0];
+  const theme = THEMES.find((t) => t.id === d.template) ?? THEMES[0];
+  if (!theme) throw new Error("No certificate templates available.");
+  return theme;
 }

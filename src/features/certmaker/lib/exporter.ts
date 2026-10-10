@@ -10,7 +10,7 @@ export function fileSafe(s: string) {
 
 export function nextId(base: string, i: number) {
   const m = base.match(/(\d+)(\D*)$/);
-  if (!m) return base ? `${base}-${i + 1}` : "";
+  if (!m || !m[1]) return base ? `${base}-${i + 1}` : "";
   const n = String(parseInt(m[1], 10) + i).padStart(m[1].length, "0");
   return base.slice(0, m.index) + n + m[2];
 }
@@ -53,9 +53,11 @@ export async function batchExport(
   if (format === "pdf-one") one = await newPdf(base);
 
   for (let i = 0; i < names.length; i++) {
-    const d: CertData = { ...base, recipient: names[i], certId: nextId(base.certId, i) };
+    const recipient = names[i];
+    if (recipient === undefined) continue;
+    const d: CertData = { ...base, recipient, certId: nextId(base.certId, i) };
     const c = await canvasFor(d);
-    const label = `${String(i + 1).padStart(3, "0")}-${fileSafe(names[i]) || "certificate"}`;
+    const label = `${String(i + 1).padStart(3, "0")}-${fileSafe(recipient) || "certificate"}`;
     if (format === "png-zip") {
       zip.file(`${label}.png`, await toBlob(c, "image/png"));
     } else if (format === "pdf-zip") {

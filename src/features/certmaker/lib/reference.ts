@@ -60,7 +60,7 @@ function analyseRaster(src: HTMLCanvasElement): RasterAnalysis {
   const data = ctx.getImageData(0, 0, W, H).data;
   const px = (x: number, y: number): RGB => {
     const i = (Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))) * 4;
-    return [data[i], data[i + 1], data[i + 2]];
+    return [data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0];
   };
   const notes: string[] = [];
 
@@ -143,8 +143,9 @@ function analyseRaster(src: HTMLCanvasElement): RasterAnalysis {
 
   // accent colour
   let accent: RGB | null = null;
-  if (usedFrames.length) {
-    const f = usedFrames[0];
+  const firstFrame = usedFrames[0];
+  if (firstFrame) {
+    const f = firstFrame;
     const d = Math.round((f.inset * W) / 1000 + (f.width * W) / 2000);
     let r = 0, g = 0, b = 0, n = 0;
     for (let x = Math.round(W * 0.2); x < W * 0.8; x++) {
@@ -206,8 +207,9 @@ function analyseRaster(src: HTMLCanvasElement): RasterAnalysis {
 
   // corner ornaments: denser corners than mid-edge, just inside the innermost frame
   let corners = false;
-  if (usedFrames.length) {
-    const f = usedFrames[usedFrames.length - 1];
+  const lastFrame = usedFrames[usedFrames.length - 1];
+  if (lastFrame) {
+    const f = lastFrame;
     const o = Math.round(((f.inset + f.width) * W) / 1000) + 3;
     const s = Math.round(W * 0.07);
     const dens = (x0: number, y0: number) => {
@@ -251,15 +253,15 @@ interface Line {
   text: string;
   size: number;
   y: number; // reading order (top → bottom)
-  family?: string;
+  family?: string | undefined;
 }
 
 const TITLE_RE = /certificate|diploma|award|appreciation|completion|achievement|participation|excellence|merit|recognition/i;
 const DATE_RE = /\b(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\.?,?\s+\d{4}|[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})\b/;
 
-function understand(lines: Line[]): RefText & { family?: string } {
+function understand(lines: Line[]): RefText & { family?: string | undefined } {
   const clean = lines.filter((l) => l.text.trim().length > 1);
-  const out: RefText & { family?: string } = { lines: clean.map((l) => l.text.trim()).slice(0, 40) };
+  const out: RefText & { family?: string | undefined } = { lines: clean.map((l) => l.text.trim()).slice(0, 40) };
   if (!clean.length) return out;
   const bySize = [...clean].sort((a, b) => b.size - a.size);
   const keyword = clean.filter((l) => TITLE_RE.test(l.text) && l.text.length < 70).sort((a, b) => b.size - a.size)[0];
@@ -268,7 +270,7 @@ function understand(lines: Line[]): RefText & { family?: string } {
     out.title = title.text.trim();
     out.family = title.family;
     const above = clean.filter((l) => l.y < title.y && l.text.length >= 3 && l.text.length < 60);
-    if (above.length) out.org = above[0].text.trim();
+    if (above[0]) out.org = above[0].text.trim();
     const below = clean.filter((l) => l.y > title.y);
     const bodyLines: string[] = [];
     for (const l of below) {
@@ -283,18 +285,18 @@ function understand(lines: Line[]): RefText & { family?: string } {
 }
 
 function groupPdfLines(items: { str?: string; transform?: number[]; height?: number; fontName?: string }[], styles: Record<string, { fontFamily?: string }>, pageH: number): Line[] {
-  const rows: { y: number; parts: { x: number; s: string }[]; size: number; family?: string }[] = [];
+  const rows: { y: number; parts: { x: number; s: string }[]; size: number; family?: string | undefined }[] = [];
   for (const it of items) {
     const s = it.str ?? "";
     if (!s.trim() || !it.transform) continue;
-    const y = pageH - it.transform[5];
-    const size = Math.hypot(it.transform[0], it.transform[1]) || it.height || 10;
+    const y = pageH - (it.transform[5] ?? 0);
+    const size = Math.hypot(it.transform[0] ?? 0, it.transform[1] ?? 0) || it.height || 10;
     const row = rows.find((r) => Math.abs(r.y - y) < size * 0.4);
     const family = it.fontName ? styles[it.fontName]?.fontFamily : undefined;
     if (row) {
-      row.parts.push({ x: it.transform[4], s });
+      row.parts.push({ x: it.transform[4] ?? 0, s });
       if (size > row.size) { row.size = size; row.family = family; }
-    } else rows.push({ y, parts: [{ x: it.transform[4], s }], size, family });
+    } else rows.push({ y, parts: [{ x: it.transform[4] ?? 0, s }], size, family });
   }
   return rows
     .sort((a, b) => a.y - b.y)

@@ -34,7 +34,10 @@ export function shuffle<T>(arr: T[], seed: string): T[] {
   const out = [...arr];
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(r.next() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
+    const a = out[i], b = out[j];
+    if (a === undefined || b === undefined) continue;
+    out[i] = b;
+    out[j] = a;
   }
   return out;
 }
