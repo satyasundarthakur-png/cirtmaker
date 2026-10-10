@@ -53,7 +53,7 @@ export default function Preview({ data, selected, onSelect, zoom = 1 }: Props) {
 
   return (
     <div className="relative mx-auto cursor-pointer overflow-hidden rounded-sm border border-line bg-card shadow-[0_10px_40px_-12px_rgba(15,23,42,0.35)]" style={{ width: `${zoom * 100}%` }} onClick={click}>
-      <canvas ref={ref} className="block h-auto w-full" role="img" aria-label={`Certificate preview for ${data.recipient}. Click a part of the certificate to give it an effect.`} />
+      <canvas ref={ref} className="block h-auto w-full" role="img" aria-label={`Certificate preview for ${data.recipient}. Click a part of the certificate to edit its text.`} />
       {sel && (
         <div
           aria-hidden

@@ -196,10 +196,29 @@ export default function CertificateMaker() {
     r.readAsDataURL(file);
   }
 
+  // Clicking a part of the certificate opens its text box so the name/text can be edited right away.
+  // The element stays selected, so colours and effects are still one tab away.
+  const FIELD_FOR: Record<string, { tab: TabId; input: string }> = {
+    org: { tab: "content", input: "org" },
+    title: { tab: "content", input: "title" },
+    subtitle: { tab: "content", input: "sub" },
+    recipient: { tab: "content", input: "rec" },
+    body: { tab: "content", input: "body" },
+    meta: { tab: "content", input: "date" },
+    sig0: { tab: "branding", input: "sn0" },
+    sig1: { tab: "branding", input: "sn1" },
+    seal: { tab: "branding", input: "seal" },
+  };
   const selectElement = (id: string | null) => {
     if (id === "qr") { setSel(null); setTab("export"); return; }
     setSel(id);
-    if (id) setTab("colors");
+    const target = id ? FIELD_FOR[id] : undefined;
+    if (!target) return;
+    setTab(target.tab);
+    window.setTimeout(() => {
+      const el = document.getElementById(target.input) as HTMLInputElement | HTMLTextAreaElement | null;
+      if (el) { el.focus(); el.select?.(); }
+    }, 60);
   };
 
   const exportButtons = (
