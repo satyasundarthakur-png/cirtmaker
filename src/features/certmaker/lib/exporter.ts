@@ -18,8 +18,16 @@ const toBlob = (c: HTMLCanvasElement, type: string, q?: number) =>
 
 async function newPdf(d: CertData) {
   const { jsPDF } = await import("jspdf");
-  const [w, h] = PAPER_MM[d.paper];
-  return { pdf: new jsPDF({ orientation: "landscape", unit: "mm", format: [w, h], compress: true }), w, h };
+  const [w, h] = pageSize(d);
+  return { pdf: new jsPDF({ orientation: w >= h ? "landscape" : "portrait", unit: "mm", format: [w, h], compress: true }), w, h };
+}
+
+function pageSize(d: CertData): [number, number] {
+  if (d.cloneMode && d.clone) {
+    const w = PAPER_MM[d.paper][0];
+    return [w, w * d.clone.height / d.clone.width];
+  }
+  return PAPER_MM[d.paper];
 }
 
 export async function pdfBlob(d: CertData): Promise<Blob> {
@@ -34,6 +42,7 @@ export async function pngBlob(d: CertData): Promise<Blob> {
 
 /** Render one certificate using an export profile (format, dpi, quality). */
 export async function exportWith(d: CertData, p: Pick<ExportProfile, "format" | "dpi" | "quality">): Promise<{ blob: Blob; ext: string }> {
+  if (d.cloneMode && !d.clone) throw new Error("Load an original certificate first.");
   // Phones/tablets can refuse very large canvases (e.g. iOS ≈ 16 MP). Retry a little smaller instead of failing.
   const full = pixelWidth(d.paper, p.dpi);
   let lastErr: unknown;
@@ -59,7 +68,7 @@ async function exportAt(d: CertData, p: Pick<ExportProfile, "format" | "dpi" | "
   if (p.format === "png") return { blob: await toBlob(c, "image/png"), ext };
   if (p.format === "jpeg") return { blob: await toBlob(c, "image/jpeg", p.quality), ext };
   if (p.format === "svg") {
-    const [w, h] = PAPER_MM[d.paper];
+    const [w, h] = pageSize(d);
     const svg = svgWrap(dataUrl(c, "image/png"), w, h, c.width, c.height);
     return { blob: new Blob([svg], { type: "image/svg+xml" }), ext };
   }
@@ -97,7 +106,7 @@ export async function batchExport(
       pdf.addImage(c.toDataURL("image/jpeg", quality), "JPEG", 0, 0, w, h);
       zip.file(`${label}.pdf`, pdf.output("blob"));
     } else if (one) {
-      if (i > 0) one.pdf.addPage([one.w, one.h], "landscape");
+      if (i > 0) one.pdf.addPage([one.w, one.h], one.w >= one.h ? "landscape" : "portrait");
       one.pdf.addImage(c.toDataURL("image/jpeg", Math.min(quality, 0.9)), "JPEG", 0, 0, one.w, one.h);
     }
     onProgress(i + 1, items.length);

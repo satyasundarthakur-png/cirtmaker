@@ -12,3 +12,5 @@
 - Keep the uploaded certificate editor in `src/features/certmaker` and render it at `/` through TanStack Router; this preserves the editor while retaining the hosting framework.
 - Keep certificate analysis, rendering, exports, and saved device designs browser-side; uploaded app privacy and offline-style workflows do not need a backend.
 - Keep uploaded UI styling in semantic global tokens and the certificate Button variant; this preserves its design through Tailwind v4.
+- Clone imports must use the isolated browser-only text detection module, never the reference style analyser; render the original first and change only explicit text rectangles to preserve locked artwork.
+- Keep clone source images session-only like reference images and preserve source aspect ratios in preview and exports; this avoids storage quota failures and stretching the original.

@@ -4,6 +4,7 @@ import { metalById, metalGradient, type Metal } from "./metals";
 import { qrMatrix } from "./qr";
 import { verifyUrl } from "./verify";
 import { paintWithEffect, type Box, type DrawFn, type Fx, type Paint } from "./effects";
+import { paintCloneFields } from "./clone";
 
 type Ctx = CanvasRenderingContext2D;
 const W = 1000;
@@ -234,6 +235,7 @@ export async function ensureFonts(d: CertData) {
 }
 
 export function certHeight(d: CertData) {
+  if (d.cloneMode && d.clone) return W * d.clone.height / d.clone.width;
   return W / PAPER_RATIO[d.paper];
 }
 
@@ -246,6 +248,18 @@ export async function drawCertificate(canvas: HTMLCanvasElement, d: CertData, wi
   if (!c) throw new Error("Canvas rendering is unavailable in this browser.");
   const k = canvas.width / W;
   c.setTransform(k, 0, 0, k, 0, 0);
+
+  if (d.cloneMode) {
+    if (!d.clone) return [];
+    const original = await loadImg(d.clone.image);
+    c.drawImage(original, 0, 0, W, H);
+    const scale = W / d.clone.width;
+    c.save();
+    c.scale(scale, scale);
+    paintCloneFields(c, d.clone.fields);
+    c.restore();
+    return d.clone.fields.map((field) => ({ id: field.id, label: field.original, x: field.x * scale, y: field.y * scale, w: field.w * scale, h: field.h * scale }));
+  }
 
   const theme = resolveTheme(d);
   const f = FONT_SETS[d.fontSet].stack;
@@ -414,6 +428,8 @@ export async function drawCertificate(canvas: HTMLCanvasElement, d: CertData, wi
 }
 
 export async function renderToCanvas(canvas: HTMLCanvasElement, d: CertData, widthPx: number): Promise<Region[]> {
-  await ensureFonts(d);
+  if (d.cloneMode) {
+    await Promise.all((d.clone?.fields ?? []).filter((f) => f.replacement !== f.original).map((f) => document.fonts.load(`${f.fontSize}px "${f.font}"`, f.replacement || "A").catch(() => [])));
+  } else await ensureFonts(d);
   return drawCertificate(canvas, d, widthPx);
 }
