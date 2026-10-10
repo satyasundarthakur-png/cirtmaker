@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Braces, Download, FileImage, FileText, Image as ImageIcon, LayoutTemplate, Layers, Maximize2, Palette, PenLine, Redo2, RotateCcw, Stamp, Table2, Undo2, Upload, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Braces, ExternalLink, QrCode, Download, FileImage, FileText, Image as ImageIcon, LayoutTemplate, Layers, Maximize2, Palette, PenLine, Redo2, RotateCcw, Stamp, Table2, Undo2, Upload, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Preview from "@/features/certmaker/components/Preview";
 import TemplatePicker from "@/features/certmaker/components/TemplatePicker";
@@ -11,6 +11,7 @@ import { FONT_SETS } from "@/features/certmaker/lib/themes";
 import { REGION_LABELS } from "@/features/certmaker/lib/render";
 import { useHistory } from "@/features/certmaker/lib/history";
 import { batchExport, download, fileSafe, pdfBlob, pngBlob, type BatchFormat } from "@/features/certmaker/lib/exporter";
+import { clearRegister, loadRegister, registerIssued, setRevoked, verifyUrl, type Issued } from "@/features/certmaker/lib/verify";
 import { BUILT_IN_VARS, certForRow, missingVariables, parseDataset } from "@/features/certmaker/lib/merge";
 
 const KEY = "certmaker:v1";
@@ -54,6 +55,8 @@ export default function CertificateMaker() {
   }, []);
   const [csv, setCsv] = useState(SAMPLE_CSV);
   const [previewRow, setPreviewRow] = useState<number | null>(null);
+  const [register, setRegister] = useState<Issued[]>([]);
+  const [vUrl, setVUrl] = useState("");
   const lastField = useRef<TextKey>("body");
   const csvFile = useRef<HTMLInputElement>(null);
   const [fmt, setFmt] = useState<BatchFormat>("pdf-zip");
@@ -87,6 +90,12 @@ export default function CertificateMaker() {
   const shown = useMemo(() => (rowIdx !== null && ds.rows[rowIdx] ? certForRow(d, ds.rows[rowIdx], rowIdx) : d), [d, ds, rowIdx]);
   const slug = fileSafe(shown.recipient) || "certificate";
   const varChoices = useMemo(() => [...new Set<string>([...BUILT_IN_VARS, ...ds.headers])], [ds.headers]);
+  useEffect(() => setRegister(loadRegister()), [tab]);
+  useEffect(() => {
+    let live = true;
+    verifyUrl(shown).then((u) => live && setVUrl(u));
+    return () => { live = false; };
+  }, [shown]);
   const insertVar = (v: string) => set(lastField.current, (d[lastField.current] + `{{${v}}}`) as never);
   const focusKey = (k: TextKey) => () => { lastField.current = k; };
 
@@ -141,16 +150,17 @@ export default function CertificateMaker() {
   }
 
   const selectElement = (id: string | null) => {
+    if (id === "qr") { setSel(null); setTab("export"); return; }
     setSel(id);
     if (id) setTab("colors");
   };
 
   const exportButtons = (
     <>
-      <Button variant="certificate" size="certificate" type="button" className="btn btn-primary" disabled={!!busy} onClick={() => run("pdf", async () => download(await pdfBlob(shown), `${slug}.pdf`))}>
+      <Button variant="certificate" size="certificate" type="button" className="btn btn-primary" disabled={!!busy} onClick={() => run("pdf", async () => { download(await pdfBlob(shown), `${slug}.pdf`); registerIssued([shown]); setRegister(loadRegister()); })}>
         <FileText aria-hidden /> {busy === "pdf" ? "Preparing…" : "PDF"}
       </Button>
-      <Button variant="certificate" size="certificate" type="button" className="btn" disabled={!!busy} onClick={() => run("png", async () => download(await pngBlob(shown), `${slug}.png`))}>
+      <Button variant="certificate" size="certificate" type="button" className="btn" disabled={!!busy} onClick={() => run("png", async () => { download(await pngBlob(shown), `${slug}.png`); registerIssued([shown]); setRegister(loadRegister()); })}>
         <FileImage aria-hidden /> {busy === "png" ? "Preparing…" : "PNG"}
       </Button>
     </>
@@ -334,6 +344,8 @@ export default function CertificateMaker() {
                     const items = ds.rows.map((r, i) => certForRow(d, r, i));
                     const r = await batchExport(items, fmt, (a, b) => setProgress([a, b]));
                     download(r.blob, r.filename);
+                    registerIssued(items);
+                    setRegister(loadRegister());
                   })}
                 >
                   {busy === "batch" && progress ? `Generating ${progress[0]} / ${progress[1]}…` : `Generate ${rowCount} certificate${rowCount === 1 ? "" : "s"}`}
@@ -346,6 +358,43 @@ export default function CertificateMaker() {
                 <PanelHeading title="Export" subtitle="Download the certificate you are editing." />
                 <div className="flex flex-wrap gap-2">{exportButtons}</div>
                 <p className="text-xs text-muted">Bulk downloads live under Variables.</p>
+
+                <Group title="QR verification">
+                  <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={d.qr} onChange={(e) => set("qr", e.target.checked)} className="accent-brand" /> Print a QR code on the certificate</label>
+                  <Field label="Verification site" id="vbase" hint="Leave empty to use this site. Use your own domain (e.g. verify.yourdomain.com) once it has a registry.">
+                    <input id="vbase" className="field" placeholder="This site" value={d.verifyBase} onChange={(e) => set("verifyBase", e.target.value)} />
+                  </Field>
+                  <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={d.verifyEmbed} onChange={(e) => set("verifyEmbed", e.target.checked)} className="mt-0.5 accent-brand" /> <span>Embed details in the link<span className="block text-xs text-muted">Verifies without a server. Turn off for short links like <span className="font-mono">/CERT-2026-001</span>.</span></span></label>
+                  {vUrl && (
+                    <div>
+                      <p className="label">Link in the QR code</p>
+                      <p className="break-all rounded-lg bg-secondary p-2 font-mono text-[11px] leading-snug">{vUrl}</p>
+                      <a href={vUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-brand underline"><ExternalLink className="size-3" aria-hidden /> Open verification page</a>
+                    </div>
+                  )}
+                </Group>
+
+                <Group title={`Issue register (${register.length})`} open={false}>
+                  {register.length === 0 ? (
+                    <EmptyState icon={<QrCode className="size-5" aria-hidden />} title="Nothing issued yet">Certificates you download are listed here so you can revoke them.</EmptyState>
+                  ) : (
+                    <>
+                      <ul className="grid gap-1.5">
+                        {register.slice(-8).reverse().map((r) => (
+                          <li key={r.id} className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 text-xs">
+                            <span className="min-w-0 flex-1">
+                              <span className={`block truncate font-semibold ${r.revoked ? "line-through opacity-60" : ""}`}>{r.name}</span>
+                              <span className="block truncate font-mono text-[11px] text-muted">{r.id}</span>
+                            </span>
+                            <button type="button" className="text-brand underline" onClick={() => setRegister(setRevoked(r.id, !r.revoked))}>{r.revoked ? "Restore" : "Revoke"}</button>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-[11px] text-muted">Stored only in this browser. Showing the latest 8 of {register.length}.</p>
+                      <Button variant="certificate" size="certificate" type="button" className="text-xs text-destructive underline" onClick={() => { if (confirm("Clear the whole issue register on this device?")) { clearRegister(); setRegister([]); } }}>Clear register</Button>
+                    </>
+                  )}
+                </Group>
               </>
             )}
 

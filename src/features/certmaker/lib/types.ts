@@ -49,6 +49,9 @@ export interface CertData {
   colors: Record<string, string>; // per-element colour override: "#rrggbb" or "metal:<id>"
   fx: Record<string, Fx>; // per-element effects, keyed by element id
   clearInset: number; // how far in from the edge the original artwork is kept (image mode)
+  qr: boolean; // print a verification QR code
+  verifyBase: string; // verification site, "" = this site
+  verifyEmbed: boolean; // embed the record in the link so it verifies without a server
 }
 
 export const PAPER_RATIO: Record<Paper, number> = { a4: 297 / 210, letter: 11 / 8.5 };
@@ -82,4 +85,7 @@ export const DEFAULT_DATA: CertData = {
   clearInset: 70,
   fx: {},
   colors: {},
+  qr: false,
+  verifyBase: "",
+  verifyEmbed: true,
 };

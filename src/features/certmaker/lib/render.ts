@@ -1,6 +1,8 @@
 import { PAPER_RATIO, type CertData } from "./types";
 import { resolveTheme, FONT_SETS } from "./themes";
 import { metalById, metalGradient, type Metal } from "./metals";
+import { qrMatrix } from "./qr";
+import { verifyUrl } from "./verify";
 import { paintWithEffect, type Box, type DrawFn, type Fx, type Paint } from "./effects";
 
 type Ctx = CanvasRenderingContext2D;
@@ -60,6 +62,7 @@ export const REGION_LABELS: Record<string, string> = {
   sig1: "Signature 2",
   meta: "Date & ID",
   seal: "Seal",
+  qr: "QR code",
 };
 
 function addRegion(env: Env, id: string, b: Box) {
@@ -366,6 +369,31 @@ export async function drawCertificate(canvas: HTMLCanvasElement, d: CertData, wi
       (cc, paint) => seal(cc, cx, sy, sc.metal && (paint === sc.color || typeof paint !== "string") ? metalGradient(cc, sc.metal, box.x, box.y, box.w, box.h) : paint, theme.bg, d.sealText),
       "seal" + d.sealText,
     );
+  }
+
+  if (d.qr && d.certId) {
+    try {
+      const m = qrMatrix(await verifyUrl(d));
+      const size = 78;
+      const right = (xs[1] ?? W * 0.78) + 112;
+      let qx = Math.max(right, W - 118);
+      if (qx + size > W - 26) qx = W - 26 - size;
+      const qy = H - 142;
+      const pad = 4;
+      const box: Box = { x: qx - pad, y: qy - pad, w: size + pad * 2, h: size + pad * 2 + 11 };
+      addRegion(env, "qr", box);
+      c.fillStyle = "#ffffff";
+      c.fillRect(box.x, box.y, box.w, size + pad * 2);
+      c.fillStyle = "#111111";
+      const cell = size / m.length;
+      m.forEach((row, r) => row.forEach((on, col) => on && c.fillRect(qx + col * cell, qy + r * cell, cell + 0.35, cell + 0.35)));
+      c.font = `600 7.5px ${f.body}`;
+      c.fillStyle = theme.muted;
+      c.textAlign = "center";
+      c.fillText("SCAN TO VERIFY", qx + size / 2, qy + size + pad + 9);
+    } catch {
+      /* link too long for a QR code: skip it rather than fail the export */
+    }
   }
 
   const meta = [d.date && `Issued on ${d.date}`, d.certId && `ID ${d.certId}`].filter(Boolean).join("   ·   ");

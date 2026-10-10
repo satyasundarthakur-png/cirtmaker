@@ -12,7 +12,7 @@ interface Props {
 }
 
 export default function EffectsPanel({ data, setData, selected, setSelected }: Props) {
-  const ids = Object.keys(REGION_LABELS).filter((id) => id !== "seal" || data.showSeal);
+  const ids = Object.keys(REGION_LABELS).filter((id) => id !== "qr" && (id !== "seal" || data.showSeal));
   const cur = selected ? data.fx[selected] : undefined;
   const type: FxType = cur?.type ?? "none";
   const amount = cur?.amount ?? 60;
