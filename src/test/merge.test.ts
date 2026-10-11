@@ -39,6 +39,9 @@ describe("variables", () => {
   it("leaves unknown variables visible instead of blanking them", () => {
     expect(fill("Hi {{nope}}", {})).toBe("Hi {{nope}}");
   });
+  it("substitutes explicit empty cells without leaving token text", () => {
+    expect(fill("{{ Name }} / {{College}} / {{missing}}", { name: "Asha", college: "" })).toBe("Asha /  / {{missing}}");
+  });
 });
 
 describe("certForRow", () => {
