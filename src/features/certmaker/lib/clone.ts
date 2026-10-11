@@ -328,7 +328,17 @@ export function mergeFit(current: CloneSource, fitted: CloneSource): CloneSource
 }
 
 export function patchField(c: CloneSource, id: string, patch: Partial<CloneTextField>): CloneSource {
-  return { ...c, fields: c.fields.map((f) => (f.id === id ? { ...f, ...patch } : f)) };
+  return { ...c, fields: c.fields.map((f) => {
+    if (f.id !== id) return f;
+    const next = { ...f, ...patch };
+    const geometryChanged = ["x", "y", "w", "h"].some((key) => key in patch);
+    if (geometryChanged) {
+      const finite = { x: Number.isFinite(next.x) ? next.x : f.x, y: Number.isFinite(next.y) ? next.y : f.y, w: Number.isFinite(next.w) ? next.w : f.w, h: Number.isFinite(next.h) ? next.h : f.h };
+      Object.assign(next, clampBox(finite, { w: c.width, h: c.height }));
+    }
+    if (!Number.isFinite(next.fontSize) || next.fontSize <= 0) next.fontSize = f.fontSize;
+    return next;
+  }) };
 }
 
 /** Remove a field. A detected field goes back to the "other text" list so it can be restored. */

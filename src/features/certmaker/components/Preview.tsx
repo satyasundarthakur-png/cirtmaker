@@ -69,7 +69,8 @@ export default function Preview({ data, selected, onSelect, zoom = 1, cloneEdit 
   const H = certHeight(data);
 
   function click(e: MouseEvent<HTMLDivElement>) {
-    const r = e.currentTarget.getBoundingClientRect();
+    const r = ref.current?.getBoundingClientRect();
+    if (!r || !r.width || !r.height) return;
     if (busy || error) return;
     if (cloneEdit) {
       const c = cloneEdit.clone;
@@ -89,8 +90,9 @@ export default function Preview({ data, selected, onSelect, zoom = 1, cloneEdit 
 
   return (
     <div className={`relative mx-auto ${cloneEdit?.onPixel ? "cursor-crosshair" : "cursor-pointer"} overflow-hidden rounded-sm border border-line bg-card shadow-[0_10px_40px_-12px_rgba(15,23,42,0.35)]`} style={{ width: `${zoom * 100}%` }} onClick={click}>
-      <canvas ref={ref} className="block h-auto w-full" role="img" aria-label={cloneEdit ? "Original certificate with editable text boxes on top." : `Certificate preview for ${data.recipient}. Click a part of the certificate to edit its text.`} />
-      {cloneEdit && !busy && !error && (
+      <div className="relative" style={{ aspectRatio: `1000 / ${H}` }}>
+      <canvas ref={ref} className="block h-full w-full" role="img" aria-label={cloneEdit ? "Original certificate with editable text boxes on top." : `Certificate preview for ${data.recipient}. Click a part of the certificate to edit its text.`} />
+      {cloneEdit && !error && (
         <CloneOverlay clone={cloneEdit.clone} selected={cloneEdit.selected} passive={!!cloneEdit.onPixel} onSelect={cloneEdit.onSelect} onChange={cloneEdit.onChange} onRemove={cloneEdit.onRemove} />
       )}
       {sel && !cloneEdit && !busy && !error && (
@@ -102,8 +104,9 @@ export default function Preview({ data, selected, onSelect, zoom = 1, cloneEdit 
           <span className="absolute -top-5 left-0 rounded bg-brand px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{sel.label}</span>
         </div>
       )}
-      {busy && <div className="absolute inset-0 grid place-items-center bg-card/50 text-sm text-muted" role="status">Rendering…</div>}
+      {busy && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-card/50 text-sm text-muted" role="status">Rendering…</div>}
       {error && <div className="absolute inset-0 grid place-items-center bg-card/90 p-4 text-center text-sm text-destructive" role="alert">{error}</div>}
+      </div>
     </div>
   );
 }

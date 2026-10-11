@@ -145,7 +145,7 @@ export function variablesIn(text: string): string[] {
 export function fill(text: string, row: Row): string {
   return text.replace(VAR_RE, (whole, raw: string) => {
     const v = row[normaliseHeader(raw)];
-    return v === undefined || v === "" ? whole : v;
+    return v === undefined ? whole : v;
   });
 }
 
@@ -160,7 +160,7 @@ export function templateText(d: CertData): string {
 /** Variables used by the template that the dataset can't supply. */
 export function missingVariables(d: CertData, ds: Dataset): string[] {
   const have = new Set(ds.headers);
-  const builtin = new Set<string>(["certificate_id"]);
+  const builtin = new Set<string>(["certificate_id", ...(d.org ? ["organization"] : []), ...(d.date ? ["date"] : []), ...(d.address ? ["address"] : [])]);
   return [...new Set(variablesIn(templateText(d)))].filter((v) => !have.has(v) && !builtin.has(v));
 }
 
