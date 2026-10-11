@@ -29,7 +29,8 @@ interface Drag {
   startX: number;
   startY: number;
   box: { x: number; y: number; w: number; h: number };
-  k: number;
+  kx: number;
+  ky: number;
 }
 
 /**
@@ -46,8 +47,8 @@ export default function CloneOverlay({ clone, selected, passive, onSelect, onCha
   function begin(e: PointerEvent<HTMLElement>, f: CloneTextField, handle: Handle) {
     e.stopPropagation();
     const rect = root.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return;
-    drag.current = { id: f.id, handle, startX: e.clientX, startY: e.clientY, box: { x: f.x, y: f.y, w: f.w, h: f.h }, k: clone.width / rect.width };
+    if (!rect || !rect.width || !rect.height || editing) return;
+    drag.current = { id: f.id, handle, startX: e.clientX, startY: e.clientY, box: { x: f.x, y: f.y, w: f.w, h: f.h }, kx: clone.width / rect.width, ky: clone.height / rect.height };
     e.currentTarget.setPointerCapture(e.pointerId);
     onSelect(f.id);
   }
@@ -56,7 +57,7 @@ export default function CloneOverlay({ clone, selected, passive, onSelect, onCha
     const d = drag.current;
     if (!d) return;
     e.stopPropagation();
-    onChange(d.id, dragBox(d.box, d.handle, (e.clientX - d.startX) * d.k, (e.clientY - d.startY) * d.k, bounds));
+    onChange(d.id, dragBox(d.box, d.handle, (e.clientX - d.startX) * d.kx, (e.clientY - d.startY) * d.ky, bounds));
   }
 
   function end(e: PointerEvent<HTMLElement>) {
@@ -127,7 +128,7 @@ export default function CloneOverlay({ clone, selected, passive, onSelect, onCha
             )}
             {editing === f.id && (
               <input
-                ref={(el) => el?.focus()}
+                 autoFocus
                 aria-label={`Text for ${f.label}`}
                 defaultValue={f.replacement}
                 className="absolute inset-0 w-full min-w-24 rounded-[2px] border-2 border-brand bg-card px-1 text-sm text-foreground outline-none"
@@ -136,11 +137,11 @@ export default function CloneOverlay({ clone, selected, passive, onSelect, onCha
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
                   e.stopPropagation();
-                  if (e.key === "Enter") { onChange(f.id, { replacement: e.currentTarget.value }); setEditing(null); }
-                  else if (e.key === "Escape") { cancelled.current = true; setEditing(null); }
+                   if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
+                   else if (e.key === "Escape") { e.preventDefault(); cancelled.current = true; e.currentTarget.blur(); }
                 }}
                 onBlur={(e) => {
-                  if (cancelled.current) { cancelled.current = false; return; }
+                   if (cancelled.current) { cancelled.current = false; setEditing(null); return; }
                   onChange(f.id, { replacement: e.currentTarget.value });
                   setEditing(null);
                 }}

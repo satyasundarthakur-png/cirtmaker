@@ -145,7 +145,7 @@ export function variablesIn(text: string): string[] {
 export function fill(text: string, row: Row): string {
   return text.replace(VAR_RE, (whole, raw: string) => {
     const v = row[normaliseHeader(raw)];
-    return v === undefined || v === "" ? whole : v;
+    return v === undefined ? whole : v;
   });
 }
 
@@ -160,14 +160,15 @@ export function templateText(d: CertData): string {
 /** Variables used by the template that the dataset can't supply. */
 export function missingVariables(d: CertData, ds: Dataset): string[] {
   const have = new Set(ds.headers);
-  const builtin = new Set<string>(["certificate_id"]);
+  const builtin = new Set<string>(["certificate_id", ...(d.org ? ["organization"] : []), ...(d.date ? ["date"] : []), ...(d.address ? ["address"] : [])]);
   return [...new Set(variablesIn(templateText(d)))].filter((v) => !have.has(v) && !builtin.has(v));
 }
 
 /** Build the certificate for one row. Certificate IDs count up unless the row carries its own. */
 export function certForRow(base: CertData, row: Row, index: number): CertData {
-  const certId = row.certificate_id || nextId(fill(base.certId, row), index);
-  const vars: Row = { organization: base.org, date: base.date, address: base.address, ...row, certificate_id: certId };
+  const defaults: Row = { organization: base.org, date: base.date, address: base.address, ...row };
+  const certId = row.certificate_id || nextId(fill(base.certId, defaults), index);
+  const vars: Row = { ...defaults, certificate_id: certId };
   if (row.name) vars.name = row.name;
   const out: CertData = { ...base, certId };
   if (base.cloneMode && base.clone) out.clone = { ...base.clone, fields: base.clone.fields.map((f) => ({ ...f, replacement: fill(f.replacement, vars) })) };

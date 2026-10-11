@@ -104,6 +104,10 @@ describe("editing operations", () => {
     expect(next.fields[1]?.x).toBe(5);
     expect(base.fields[1]?.x).toBe(40);
   });
+  it("clamps numeric edits to the source page and rejects invalid font sizes", () => {
+    const next = patchField(base, "clone-0", { x: 9999, y: -9, w: 2000, fontSize: Number.NaN });
+    expect(next.fields[0]).toMatchObject({ x: 0, y: 0, w: 1000, fontSize: base.fields[0]?.fontSize });
+  });
   it("sends a removed detected field back to 'other text' and drops a manual one", () => {
     const removed = removeField(base, "clone-0");
     expect(removed.fields.map((f) => f.id)).toEqual(["clone-1", "clone-2"]);
@@ -143,5 +147,11 @@ describe("bulk generation", () => {
     const d = { ...data(source({ fields: [field({ replacement: "{{certificate_id}}" })] })), certId: "CERT-2026-001" };
     const ids = [0, 1, 2].map((i) => certForRow(d, { name: "A" }, i).clone?.fields[0]?.replacement);
     expect(ids).toEqual(["CERT-2026-001", "CERT-2026-002", "CERT-2026-003"]);
+  });
+  it("fills custom fields and blank cells without mutating the template", () => {
+    const d = data(source({ fields: [field({ replacement: "{{ Name }} / {{Registration Number}} / {{College}} / {{place}}" })] }));
+    const merged = certForRow(d, { name: "Asha", registration_number: "REG-01", college: "College A", place: "" }, 0);
+    expect(merged.clone?.fields[0]?.replacement).toBe("Asha / REG-01 / College A / ");
+    expect(d.clone?.fields[0]?.replacement).toContain("{{place}}");
   });
 });

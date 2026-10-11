@@ -12,7 +12,9 @@
 - Keep the uploaded certificate editor in `src/features/certmaker` and render it at `/` through TanStack Router; this preserves the editor while retaining the hosting framework.
 - Keep certificate analysis, rendering, exports, and saved device designs browser-side; uploaded app privacy and offline-style workflows do not need a backend.
 - Keep uploaded UI styling in semantic global tokens and the certificate Button variant; this preserves its design through Tailwind v4.
-- Preview renders must commit offscreen frames only while their effect is live, and clear pending state on failure; this prevents outdated edits and selection boxes from appearing over a newer certificate.
+- Preview renders must commit offscreen frames only while their effect is live, clear pending state on failure, and retain the clone overlay during redraws; this prevents stale frames without interrupting pointer capture or text editing.
+- Map clone pointer coordinates against the canvas content area with independent horizontal and vertical scales, and clamp field geometry at the update boundary; this keeps panel, drag and export coordinates consistent.
+- CSV substitution preserves unknown tokens but replaces explicitly empty cells with empty text; this distinguishes missing columns from intentional blank field values.
 - Fit clone replacement text with browser text metrics in `clone-text-layout.ts` and clip it consistently for every erase mode; preview and exports share the same painter to prevent text spilling into neighbouring fields.
 - Clone imports must use the isolated browser-only text detection module, never the reference style analyser; render the original first and change only explicit text rectangles to preserve locked artwork.
 - Keep clone source images session-only like reference images and preserve source aspect ratios in preview and exports; this avoids storage quota failures and stretching the original.
