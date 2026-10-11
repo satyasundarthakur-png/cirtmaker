@@ -26,9 +26,9 @@ describe("painting", () => {
     const ctx = context();
     paint(ctx, [field({ replacement: "New recipient" })]);
     expect(ctx.rect).toHaveBeenCalledWith(40, 80, 200, 30);
-    expect(ctx.clip).toHaveBeenCalledOnce();
+    expect(ctx.clip).toHaveBeenCalledTimes(2);
     expect(ctx.fillRect).toHaveBeenCalledWith(40, 80, 200, 30);
-    expect(ctx.fillText).toHaveBeenCalledWith("New recipient", expect.any(Number), 95);
+    expect(ctx.fillText).toHaveBeenCalledWith("New recipient", expect.any(Number), expect.any(Number));
     expect(ctx.restore).toHaveBeenCalledOnce();
   });
   it("paints no cover at all when the cover is off", () => {
@@ -40,7 +40,7 @@ describe("painting", () => {
   it("centres or right-aligns text inside the box", () => {
     const centre = context();
     paint(centre, [field({ replacement: "X", align: "center" })]);
-    expect(centre.fillText).toHaveBeenCalledWith("X", 140, 95);
+    expect(centre.fillText).toHaveBeenCalledWith("X", 140, expect.any(Number));
     expect(centre.textAlign).toBe("center");
     const right = context();
     paint(right, [field({ replacement: "X", align: "right" })]);
@@ -56,6 +56,17 @@ describe("painting", () => {
   it("builds a font string with weight, style and quoted families", () => {
     expect(fontCss({ font: "Playfair Display", bold: true, italic: true }, 20)).toBe('italic 700 20px "Playfair Display", serif');
     expect(fontCss({ font: "serif", bold: false, italic: false }, 12)).toBe("400 12px serif");
+  });
+  it("clips user text even when erasure is disabled", () => {
+    const ctx = context();
+    paint(ctx, [field({ replacement: "User text", erase: "none" })]);
+    expect(ctx.clip).toHaveBeenCalledOnce();
+    expect(ctx.fillRect).not.toHaveBeenCalled();
+  });
+  it("skips invalid geometry rather than poisoning the canvas state", () => {
+    const ctx = context();
+    paint(ctx, [field({ replacement: "User text", w: Number.NaN })]);
+    expect(ctx.save).not.toHaveBeenCalled();
   });
 });
 

@@ -156,12 +156,12 @@ describe("painting with smart erase", () => {
   const smart: CloneTextField = { ...cloneField("old", 100, 50, 200, 30, 0), erase: "smart", replacement: "new", font: "Great Vibes", weight: 3.5 };
   const patch = { x: 90, y: 40, canvas: {} as HTMLCanvasElement };
 
-  it("draws the erase patch (not a rectangle) and does not clip the new text", () => {
+  it("draws the erase patch unchanged and clips only the new text", () => {
     const c = ctx();
     paintCloneFields(c as unknown as CanvasRenderingContext2D, [smart], new Map([["clone-0", patch]]));
     expect(c.drawImage).toHaveBeenCalledWith(patch.canvas, 90, 40);
     expect(c.fillRect).not.toHaveBeenCalled();
-    expect(c.clip).not.toHaveBeenCalled();
+    expect(c.clip).toHaveBeenCalledOnce();
     expect(c.fillText).toHaveBeenCalledOnce();
   });
   it("thickens a thin font with an outline pass before the fill", () => {
@@ -176,12 +176,12 @@ describe("painting with smart erase", () => {
     expect(c.drawImage).not.toHaveBeenCalled();
     expect(c.fillText).not.toHaveBeenCalled();
   });
-  it("'none' erases nothing and does not clip", () => {
+  it("'none' erases nothing and confines user text to its box", () => {
     const c = ctx();
     paintCloneFields(c as unknown as CanvasRenderingContext2D, [{ ...smart, erase: "none" }]);
     expect(c.drawImage).not.toHaveBeenCalled();
     expect(c.fillRect).not.toHaveBeenCalled();
-    expect(c.clip).not.toHaveBeenCalled();
+    expect(c.clip).toHaveBeenCalledOnce();
   });
 });
 

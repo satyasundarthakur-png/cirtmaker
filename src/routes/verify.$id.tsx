@@ -17,6 +17,10 @@ export const Route = createFileRoute("/verify/$id")({
     meta: [
       { title: "Verify a certificate" },
       { name: "description", content: "Check that a certificate is genuine and unaltered." },
+      { property: "og:title", content: "Certificate Maker — Verify a Certificate" },
+      { property: "og:description", content: "Check certificate details against their checksum and this browser's issue register." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex" },
     ],
   }),
