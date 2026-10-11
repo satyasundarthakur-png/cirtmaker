@@ -29,6 +29,8 @@ export type BgMode = "recreate" | "image";
 
 export type CloneKind = "name" | "certId" | "date" | "course" | "custom";
 export type CloneAlign = "left" | "center" | "right";
+/** How the old text is removed: only its own pixels ("smart"), a flat rectangle ("patch"), or not at all. */
+export type CloneErase = "smart" | "patch" | "none";
 
 /** One editable text rectangle laid over the locked original. All numbers are pixels of the original image. */
 export interface CloneTextField {
@@ -47,8 +49,12 @@ export interface CloneTextField {
   italic: boolean;
   align: CloneAlign;
   color: string;
-  /** Flat patch painted under the new text to hide the original words. "" = leave the original pixels untouched. */
+  /** How the old text is removed. "smart" erases only the old writing's own pixels. */
+  erase: CloneErase;
+  /** Colour of the flat patch used when `erase` is "patch". "" = no patch. */
   cover: string;
+  /** Stroke thickness (image px) the new text should match. Thickness is added only if the chosen font is thinner. 0 = font as designed. */
+  weight: number;
 }
 
 export interface CloneSource {

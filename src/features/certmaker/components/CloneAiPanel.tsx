@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ExternalLink, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { fitFieldsToInk } from "../lib/clone-erase-canvas";
 import { AiError, DEFAULT_MODEL, PROVIDERS, applyAiDetection, detectResilient, loadKey, prepareImage, saveKey, type AiProvider } from "../lib/clone-ai";
 import type { CloneSource } from "../lib/types";
 
@@ -41,7 +42,10 @@ export default function CloneAiPanel({ clone, headers, edit, onSelect }: Props) 
       const prepared = await prepareImage(image);
       const { items, dropped, model: used } = await detectResilient({ provider, apiKey: key, model, image: prepared, headers, signal: ctrl.signal, onStatus: setProgress });
       // ignore the answer if the template was swapped while we waited
-      edit((c) => (c.image === image ? applyAiDetection(c, items) : c));
+      const applied = applyAiDetection(clone, items);
+      // AI boxes are often a little short or off: fit them to the real writing before showing them
+      const fitted = await fitFieldsToInk(applied).catch(() => applied);
+      edit((c) => (c.image === image ? fitted : c));
       onSelect(null);
       const editable = items.filter((i) => i.kind !== "other").length;
       const mapped = items.filter((i) => i.kind !== "other" && i.column).length;

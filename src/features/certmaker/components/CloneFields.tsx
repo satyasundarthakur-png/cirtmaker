@@ -1,9 +1,10 @@
-import { useEffect } from "react";
-import { AlignCenter, AlignLeft, AlignRight, Crosshair, Plus, Trash2, Wand2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlignCenter, AlignLeft, AlignRight, Crosshair, Loader2, Plus, ScanText, Trash2, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import CloneAiPanel from "./CloneAiPanel";
-import { addManualField, autoMapFields, patchField, promoteSuggestion, removeField } from "../lib/clone";
-import type { CloneAlign, CloneKind, CloneSource, CloneTextField } from "../lib/types";
+import { addManualField, autoMapFields, mergeFit, patchField, promoteSuggestion, removeField } from "../lib/clone";
+import { fitFieldsToInk } from "../lib/clone-erase-canvas";
+import type { CloneAlign, CloneErase, CloneKind, CloneSource, CloneTextField } from "../lib/types";
 
 export interface PickTarget {
   id: string;
@@ -30,6 +31,11 @@ const ALIGNS: { v: CloneAlign; label: string; Icon: typeof AlignLeft }[] = [
   { v: "center", label: "Align centre", Icon: AlignCenter },
   { v: "right", label: "Align right", Icon: AlignRight },
 ];
+const ERASE_MODES: { v: CloneErase; label: string }[] = [
+  { v: "smart", label: "Smart: remove only the old writing (recommended)" },
+  { v: "patch", label: "Flat patch: a rectangle in one colour" },
+  { v: "none", label: "Don't erase anything" },
+];
 const GEOMETRY = [
   ["x", "Left"],
   ["y", "Top"],
@@ -45,7 +51,18 @@ export default function CloneFields({ clone, edit, selected, onSelect, variables
     if (selected) document.getElementById(`card-${selected}`)?.scrollIntoView({ block: "nearest" });
   }, [selected]);
 
+  const [fitting, setFitting] = useState(false);
   const update = (id: string, patch: Partial<CloneTextField>) => edit((c) => patchField(c, id, patch));
+  /** Grow boxes onto the real writing and take size, ink colour and stroke thickness from it. */
+  async function fit(only?: string) {
+    setFitting(true);
+    try {
+      const fitted = await fitFieldsToInk(clone, only);
+      edit((c) => (c.image === clone.image ? mergeFit(c, fitted) : c));
+    } finally {
+      setFitting(false);
+    }
+  }
   const megapixels = (clone.width * clone.height) / 1_000_000;
 
   return (
@@ -79,6 +96,9 @@ export default function CloneFields({ clone, edit, selected, onSelect, variables
         </Button>
         <Button variant="certificate" size="certificate" type="button" className="btn" onClick={() => edit(autoMapFields)} disabled={!clone.fields.length}>
           <Wand2 aria-hidden /> Fill from CSV columns
+        </Button>
+        <Button variant="certificate" size="certificate" type="button" className="btn" onClick={() => fit()} disabled={!clone.fields.length || fitting}>
+          {fitting ? <Loader2 className="animate-spin" aria-hidden /> : <ScanText aria-hidden />} Fit boxes to the writing
         </Button>
       </div>
 
@@ -145,21 +165,34 @@ export default function CloneFields({ clone, edit, selected, onSelect, variables
                       <Crosshair className="size-3.5" aria-hidden /> Pick from certificate
                     </button>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-1.5">
-                      <input type="checkbox" checked={!!f.cover} onChange={(e) => update(f.id, { cover: e.target.checked ? "#ffffff" : "" })} />
-                      Cover the original text
-                    </label>
-                    {f.cover && (
-                      <>
-                        <input aria-label={`${f.label} cover colour`} type="color" value={f.cover} onChange={(e) => update(f.id, { cover: e.target.value })} />
-                        <button type="button" className="inline-flex items-center gap-1 text-brand underline" onClick={() => onPick({ id: f.id, prop: "cover" })}>
-                          <Crosshair className="size-3.5" aria-hidden /> Pick from certificate
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-muted">The cover is a flat patch in the colour you choose. On a patterned background, turn it off or pick the colour next to the text.</p>
+                  <label className="grid gap-1 text-muted">
+                    Remove the old text
+                    <select aria-label={`${f.label} erase mode`} className="field" value={f.erase} onChange={(e) => update(f.id, { erase: e.target.value as CloneErase, ...(e.target.value === "patch" && !f.cover ? { cover: "#ffffff" } : {}) })}>
+                      {ERASE_MODES.map((m) => <option key={m.v} value={m.v}>{m.label}</option>)}
+                    </select>
+                  </label>
+                  {f.erase === "patch" && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="flex items-center gap-1.5">
+                        Patch colour
+                        <input aria-label={`${f.label} patch colour`} type="color" value={f.cover || "#ffffff"} onChange={(e) => update(f.id, { cover: e.target.value })} />
+                      </label>
+                      <button type="button" className="inline-flex items-center gap-1 text-brand underline" onClick={() => onPick({ id: f.id, prop: "cover" })}>
+                        <Crosshair className="size-3.5" aria-hidden /> Pick from certificate
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted">
+                    {f.erase === "smart"
+                      ? "Erases only the pixels of the old writing and keeps printed dotted lines, rules and neighbouring words. Boxes only need to roughly cover it."
+                      : f.erase === "patch"
+                        ? "Paints one flat colour over the whole box. It also removes anything printed inside the box, such as dotted lines."
+                        : "The old text stays as it is. Use this for a blank space."}
+                  </p>
+                  <label className="grid gap-1 text-muted">
+                    Stroke thickness to match (px, 0 = font as is)
+                    <input aria-label={`${f.label} stroke thickness`} className="field" type="number" min={0} max={12} step={0.5} value={f.weight} onChange={(e) => update(f.id, { weight: Math.min(12, Math.max(0, Number(e.target.value))) })} />
+                  </label>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -178,6 +211,11 @@ export default function CloneFields({ clone, edit, selected, onSelect, variables
                 </div>
 
                 <div className="flex flex-wrap gap-3 text-xs">
+                  {f.original.trim() && (
+                    <button type="button" className="inline-flex items-center gap-1 text-brand underline" disabled={fitting} onClick={() => fit(f.id)}>
+                      <ScanText className="size-3.5" aria-hidden /> Fit box to the writing
+                    </button>
+                  )}
                   {f.original && (
                     <button type="button" className="text-brand underline" onClick={() => update(f.id, { replacement: f.original })}>Restore original text</button>
                   )}

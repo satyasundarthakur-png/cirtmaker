@@ -5,6 +5,7 @@ import { qrMatrix } from "./qr";
 import { verifyUrl } from "./verify";
 import { paintWithEffect, type Box, type DrawFn, type Fx, type Paint } from "./effects";
 import { fontCss, isActive, loadCloneImage, paintCloneFields } from "./clone";
+import { erasePatchFor, protectBoxes, type ErasePatch } from "./clone-erase-canvas";
 
 type Ctx = CanvasRenderingContext2D;
 const W = 1000;
@@ -255,9 +256,17 @@ async function drawClone(canvas: HTMLCanvasElement, d: CertData, widthPx: number
   c.imageSmoothingEnabled = canvas.width !== clone.width; // never resample when exporting at native size
   c.imageSmoothingQuality = "high";
   c.drawImage(original, 0, 0, canvas.width, canvas.height);
+  // smart erase: replacement pixels for the old writing, computed from the original at its own resolution
+  const protect = protectBoxes(clone);
+  const patches = new Map<string, ErasePatch>();
+  await Promise.all(
+    clone.fields.filter((f) => isActive(f) && f.erase === "smart").map(async (f) => {
+      patches.set(f.id, await erasePatchFor(original, f, protect));
+    }),
+  );
   const k = canvas.width / clone.width;
   c.setTransform(k, 0, 0, k, 0, 0);
-  paintCloneFields(c, clone.fields);
+  paintCloneFields(c, clone.fields, patches);
   c.setTransform(1, 0, 0, 1, 0, 0);
   const scale = W / clone.width;
   return clone.fields.map((f) => ({ id: f.id, label: f.label, x: f.x * scale, y: f.y * scale, w: f.w * scale, h: f.h * scale }));

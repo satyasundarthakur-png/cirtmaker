@@ -1,5 +1,6 @@
 import { buildLines, detectFields, type Detected, type RawItem } from "./clone-detect";
 import { clampBox, clonePageMm, isCentered } from "./clone-geometry";
+import { fitFieldsToInk, type ErasePatch } from "./clone-erase-canvas";
 import type { CloneKind, CloneSource, CloneTextField } from "./types";
 
 /*
@@ -34,7 +35,9 @@ export function cloneField(text: string, x: number, y: number, w: number, h: num
     italic: false,
     align: "left",
     color: "#17181a",
+    erase: "patch",
     cover: "#ffffff",
+    weight: 0,
   };
 }
 
@@ -43,6 +46,20 @@ export const isActive = (f: CloneTextField) => f.replacement !== f.original;
 
 const GENERIC = new Set(["serif", "sans-serif", "cursive", "monospace"]);
 
+/** Typical stem thickness of each font as a fraction of its size, so thickness is only added to fonts that are thinner than the writing. */
+const STEM: Record<string, number> = {
+  Inter: 0.09, Montserrat: 0.095, "Playfair Display": 0.075, "Cormorant Garamond": 0.045, "Great Vibes": 0.03,
+  "Noto Sans Oriya": 0.08, "Noto Sans Devanagari": 0.08, serif: 0.07, "sans-serif": 0.085,
+};
+
+/** Extra outline thickness (image px) that brings a thin font up to the stroke thickness of the writing it replaces. */
+export function extraStroke(f: Pick<CloneTextField, "font" | "bold" | "weight">, size: number): number {
+  if (f.weight <= 0) return 0;
+  const natural = (STEM[f.font] ?? 0.08) * size * (f.bold ? 1.6 : 1);
+  // half the shortfall, and never more than 3.5% of the size: enough to look as dark, not so much that letters fill in
+  return Math.max(0, Math.min(0.5 * (f.weight - natural), 0.035 * size));
+}
+
 export function fontCss(f: Pick<CloneTextField, "font" | "bold" | "italic">, size: number) {
   const lead = `${f.italic ? "italic " : ""}${f.bold ? 700 : 400} ${size}px`;
   if (GENERIC.has(f.font)) return `${lead} ${f.font}`;
@@ -50,17 +67,27 @@ export function fontCss(f: Pick<CloneTextField, "font" | "bold" | "italic">, siz
   return `${lead} "${f.font}", ${fallback}`;
 }
 
-/** Only active text rectangles are touched. No pixels are sampled or analysed. */
-export function paintCloneFields(ctx: CanvasRenderingContext2D, fields: CloneTextField[]) {
+/**
+ * Paint the replacement text. Only active fields are touched, and only in their own area:
+ *  - "smart": the old writing's own pixels are replaced from `patches`; the rest of the artwork is left alone;
+ *  - "patch": a flat rectangle in the cover colour, clipped to the box;
+ *  - "none": nothing is removed.
+ */
+export function paintCloneFields(ctx: CanvasRenderingContext2D, fields: CloneTextField[], patches?: ReadonlyMap<string, ErasePatch>) {
   for (const f of fields) {
     if (!isActive(f)) continue;
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(f.x, f.y, f.w, f.h);
-    ctx.clip();
-    if (f.cover) {
-      ctx.fillStyle = f.cover;
-      ctx.fillRect(f.x, f.y, f.w, f.h);
+    if (f.erase === "smart") {
+      const patch = patches?.get(f.id);
+      if (patch) ctx.drawImage(patch.canvas, patch.x, patch.y);
+    } else if (f.erase === "patch") {
+      ctx.beginPath();
+      ctx.rect(f.x, f.y, f.w, f.h);
+      ctx.clip();
+      if (f.cover) {
+        ctx.fillStyle = f.cover;
+        ctx.fillRect(f.x, f.y, f.w, f.h);
+      }
     }
     if (f.replacement.trim()) {
       const padX = Math.min(2, f.w * 0.05);
@@ -74,7 +101,16 @@ export function paintCloneFields(ctx: CanvasRenderingContext2D, fields: CloneTex
       ctx.textAlign = f.align;
       ctx.textBaseline = "middle";
       const tx = f.align === "center" ? f.x + f.w / 2 : f.align === "right" ? f.x + f.w - padX : f.x + padX;
-      ctx.fillText(f.replacement, tx, f.y + f.h / 2);
+      const ty = f.y + f.h / 2;
+      const extra = extraStroke(f, size);
+      if (extra >= 0.3) {
+        // thickens thin strokes so the new text is not faint next to heavy handwriting
+        ctx.strokeStyle = f.color;
+        ctx.lineWidth = extra;
+        ctx.lineJoin = "round";
+        ctx.strokeText(f.replacement, tx, ty);
+      }
+      ctx.fillText(f.replacement, tx, ty);
     }
     ctx.restore();
   }
@@ -82,23 +118,8 @@ export function paintCloneFields(ctx: CanvasRenderingContext2D, fields: CloneTex
 
 /* ---------- original image ---------- */
 
-let lastImage: { src: string; promise: Promise<HTMLImageElement> } | null = null;
-
-/** Decode the locked original. Only the latest image is cached so replacing a template frees the old one. */
-export function loadCloneImage(src: string): Promise<HTMLImageElement> {
-  if (lastImage?.src === src) return lastImage.promise;
-  const promise = new Promise<HTMLImageElement>((res, rej) => {
-    const img = new Image();
-    img.onload = () => res(img);
-    img.onerror = () => rej(new Error("The original certificate could not be displayed."));
-    img.src = src;
-  });
-  lastImage = { src, promise };
-  promise.catch(() => {
-    if (lastImage?.promise === promise) lastImage = null;
-  });
-  return promise;
-}
+export { loadCloneImage } from "./clone-image";
+import { loadCloneImage } from "./clone-image";
 
 const hex2 = (n: number) => n.toString(16).padStart(2, "0");
 
@@ -143,7 +164,9 @@ export function fieldFromDetected(d: Detected, id: string, page: { w: number; h:
     ...styleFromHint(d.fontHint),
     align: isCentered(box, page.w) ? "center" : "left",
     color: "#17181a",
+    erase: "smart",
     cover: "#ffffff",
+    weight: 0,
   };
 }
 
@@ -238,7 +261,7 @@ async function loadPdf(file: File): Promise<CloneSource> {
     const page2 = { w: canvas.width, h: canvas.height };
     let { fields, suggestions } = items.length ? detectionToFields(items, page2) : { fields: [], suggestions: [] };
     if (!items.length) ({ fields, suggestions } = detectionToFields(await ocrItems(canvas), page2)); // scanned PDF
-    return {
+    return fitFieldsToInk({
       image: canvas.toDataURL("image/png"),
       width: canvas.width,
       height: canvas.height,
@@ -247,7 +270,7 @@ async function loadPdf(file: File): Promise<CloneSource> {
       pageMm: [Math.round(((base.width * 25.4) / 72) * 10) / 10, Math.round(((base.height * 25.4) / 72) * 10) / 10],
       fields,
       suggestions,
-    };
+    });
   } finally {
     await doc.destroy();
   }
@@ -266,7 +289,7 @@ async function loadImage(file: File, mime: string): Promise<CloneSource> {
   if (!ctx) throw new Error("Canvas rendering is unavailable.");
   ctx.drawImage(img, 0, 0);
   const { fields, suggestions } = detectionToFields(await ocrItems(canvas), { w: width, h: height });
-  return { image, width, height, filename: file.name, kind: "image", fields, suggestions };
+  return fitFieldsToInk({ image, width, height, filename: file.name, kind: "image", fields, suggestions });
 }
 
 export async function loadClone(file: File): Promise<CloneSource> {
@@ -287,6 +310,18 @@ const byPosition = (a: CloneTextField, b: CloneTextField) => a.y - b.y || a.x - 
 export function nextIndex(c: CloneSource) {
   const nums = [...c.fields, ...c.suggestions].map((f) => Number(/^clone-(\d+)$/.exec(f.id)?.[1] ?? -1));
   return Math.max(-1, ...nums) + 1;
+}
+
+/** Apply only the geometry and look from a fitted copy onto the current clone, so text typed meanwhile is kept. */
+export function mergeFit(current: CloneSource, fitted: CloneSource): CloneSource {
+  const byId = new Map(fitted.fields.map((f) => [f.id, f]));
+  return {
+    ...current,
+    fields: current.fields.map((f) => {
+      const t = byId.get(f.id);
+      return t ? { ...f, x: t.x, y: t.y, w: t.w, h: t.h, fontSize: t.fontSize, color: t.color, weight: t.weight } : f;
+    }),
+  };
 }
 
 export function patchField(c: CloneSource, id: string, patch: Partial<CloneTextField>): CloneSource {
@@ -319,6 +354,7 @@ export function addManualField(c: CloneSource): { clone: CloneSource; id: string
     replacement: "New text",
     fontSize: Math.round(h * 0.7),
     align: "center",
+    erase: "none",
     cover: "",
   };
   return { clone: { ...c, fields: [...c.fields, field] }, id };
