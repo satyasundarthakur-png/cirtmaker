@@ -1,6 +1,7 @@
 import { buildLines, detectFields, type Detected, type RawItem } from "./clone-detect";
 import { clampBox, clonePageMm, isCentered } from "./clone-geometry";
 import { fitFieldsToInk, type ErasePatch } from "./clone-erase-canvas";
+import { fitCloneText } from "./clone-text-layout";
 import type { CloneKind, CloneSource, CloneTextField } from "./types";
 
 /*
@@ -76,6 +77,7 @@ export function fontCss(f: Pick<CloneTextField, "font" | "bold" | "italic">, siz
 export function paintCloneFields(ctx: CanvasRenderingContext2D, fields: CloneTextField[], patches?: ReadonlyMap<string, ErasePatch>) {
   for (const f of fields) {
     if (!isActive(f)) continue;
+    if (![f.x, f.y, f.w, f.h, f.fontSize].every(Number.isFinite) || f.w <= 0 || f.h <= 0 || f.fontSize <= 0) continue;
     ctx.save();
     if (f.erase === "smart") {
       const patch = patches?.get(f.id);
@@ -91,26 +93,27 @@ export function paintCloneFields(ctx: CanvasRenderingContext2D, fields: CloneTex
     }
     if (f.replacement.trim()) {
       const padX = Math.min(2, f.w * 0.05);
-      let size = f.fontSize;
-      ctx.font = fontCss(f, size);
-      while (ctx.measureText(f.replacement).width > f.w - 2 * padX && size > 4) {
-        size -= Math.max(0.5, size * 0.03);
-        ctx.font = fontCss(f, size);
-      }
+      const padY = Math.min(2, f.h * 0.05);
+      const text = f.replacement.replace(/[\r\n\t]+/g, " ");
+      const { size, ascent, descent } = fitCloneText(ctx, text, (s) => fontCss(f, s), f.fontSize, f.w - 2 * padX, f.h - 2 * padY);
+      // All erase modes use the same text boundary; only the text is clipped here.
+      ctx.beginPath();
+      ctx.rect(f.x, f.y, f.w, f.h);
+      ctx.clip();
       ctx.fillStyle = f.color;
       ctx.textAlign = f.align;
-      ctx.textBaseline = "middle";
+      ctx.textBaseline = "alphabetic";
       const tx = f.align === "center" ? f.x + f.w / 2 : f.align === "right" ? f.x + f.w - padX : f.x + padX;
-      const ty = f.y + f.h / 2;
+      const ty = f.y + (f.h + ascent - descent) / 2;
       const extra = extraStroke(f, size);
       if (extra >= 0.3) {
         // thickens thin strokes so the new text is not faint next to heavy handwriting
         ctx.strokeStyle = f.color;
         ctx.lineWidth = extra;
         ctx.lineJoin = "round";
-        ctx.strokeText(f.replacement, tx, ty);
+        ctx.strokeText(text, tx, ty);
       }
-      ctx.fillText(f.replacement, tx, ty);
+      ctx.fillText(text, tx, ty);
     }
     ctx.restore();
   }
