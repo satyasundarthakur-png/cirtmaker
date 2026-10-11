@@ -95,6 +95,8 @@ export function paintCloneFields(ctx: CanvasRenderingContext2D, fields: CloneTex
       const padX = Math.min(2, f.w * 0.05);
       const padY = Math.min(2, f.h * 0.05);
       const text = f.replacement.replace(/[\r\n\t]+/g, " ");
+      ctx.textAlign = f.align;
+      ctx.textBaseline = "alphabetic";
       const { size, ascent, descent } = fitCloneText(ctx, text, (s) => fontCss(f, s), f.fontSize, f.w - 2 * padX, f.h - 2 * padY);
       // All erase modes use the same text boundary; only the text is clipped here.
       ctx.beginPath();

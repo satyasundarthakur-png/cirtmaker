@@ -65,6 +65,10 @@ describe("certForRow", () => {
   it("normalises header spacing", () => {
     expect(normaliseHeader(" Certificate ID ")).toBe("certificate_id");
   });
+  it("resolves ID templates using the same defaults as other tokens", () => {
+    const out = certForRow({ ...base, org: "WORKSHOP", certId: "{{organization}}-001" }, { name: "Asha" }, 1);
+    expect(out.certId).toBe("WORKSHOP-002");
+  });
 });
 
 describe("header handling", () => {

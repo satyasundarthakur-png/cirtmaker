@@ -166,8 +166,9 @@ export function missingVariables(d: CertData, ds: Dataset): string[] {
 
 /** Build the certificate for one row. Certificate IDs count up unless the row carries its own. */
 export function certForRow(base: CertData, row: Row, index: number): CertData {
-  const certId = row.certificate_id || nextId(fill(base.certId, row), index);
-  const vars: Row = { organization: base.org, date: base.date, address: base.address, ...row, certificate_id: certId };
+  const defaults: Row = { organization: base.org, date: base.date, address: base.address, ...row };
+  const certId = row.certificate_id || nextId(fill(base.certId, defaults), index);
+  const vars: Row = { ...defaults, certificate_id: certId };
   if (row.name) vars.name = row.name;
   const out: CertData = { ...base, certId };
   if (base.cloneMode && base.clone) out.clone = { ...base.clone, fields: base.clone.fields.map((f) => ({ ...f, replacement: fill(f.replacement, vars) })) };
