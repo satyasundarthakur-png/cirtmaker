@@ -587,7 +587,7 @@ export default function CertificateMaker() {
         <main className="order-1 min-w-0 flex-1 lg:order-2 lg:overflow-auto" aria-label="Certificate canvas">
           <div className="checker min-h-[40vh] p-4 sm:p-8 lg:min-h-full">
              {d.cloneMode && !d.clone ? <div className="grid min-h-[40vh] place-items-center text-sm text-muted">No original certificate loaded</div> : <Preview data={shown} selected={sel} onSelect={selectElement} zoom={zoom} cloneEdit={cloneEdit} />}
-            <p className="mt-6 text-center text-xs text-muted">{d.cloneMode ? "Everything stays in your browser. Only the optional AI detection sends the template image to Google." : "Everything happens in your browser — names and logos are never uploaded."}</p>
+            <p className="mt-6 text-center text-xs text-muted">{d.cloneMode ? "Everything stays in your browser. Only the optional AI detection, if you use it, sends the template image to Google or Groq." : "Everything happens in your browser — names and logos are never uploaded."}</p>
           </div>
         </main>
 
