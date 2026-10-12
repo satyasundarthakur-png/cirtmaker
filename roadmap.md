@@ -1,4 +1,5 @@
 # Deployment tasks
+- [x] Add reviewed, device-only written commands for selected Clone Mode text fields and verify editing and exports.
 - [x] Fix Clone Mode field editing, token substitution, coordinate mapping and layout regressions; verify targeted tests and browser flows.
 - [x] Fix stale preview redraws and recover from rendering failures.
 - [x] Fit user-entered text inside its field and test preview/export rendering consistency.

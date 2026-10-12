@@ -15,6 +15,7 @@
 - Preview renders must commit offscreen frames only while their effect is live, clear pending state on failure, and retain the clone overlay during redraws; this prevents stale frames without interrupting pointer capture or text editing.
 - Map clone pointer coordinates against the canvas content area with independent horizontal and vertical scales, and clamp field geometry at the update boundary; this keeps panel, drag and export coordinates consistent.
 - CSV substitution preserves unknown tokens but replaces explicitly empty cells with empty text; this distinguishes missing columns from intentional blank field values.
+- Keep written field commands device-only, allowlisted and reviewed before applying through patchField/removeField; invalidate reviews after template or field changes to avoid stale edits, and never send instruction text or recipient values to detection providers.
 - Fit clone replacement text with browser text metrics in `clone-text-layout.ts` and clip it consistently for every erase mode; preview and exports share the same painter to prevent text spilling into neighbouring fields.
 - Clone imports must use the isolated browser-only text detection module, never the reference style analyser; render the original first and change only explicit text rectangles to preserve locked artwork.
 - Keep clone source images session-only like reference images and preserve source aspect ratios in preview and exports; this avoids storage quota failures and stretching the original.
