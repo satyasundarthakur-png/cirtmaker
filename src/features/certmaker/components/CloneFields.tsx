@@ -33,6 +33,8 @@ interface Props {
   clone: CloneSource;
   edit: (fn: (c: CloneSource) => CloneSource) => void;
   selected: string | null;
+  selectedIds?: string[] | undefined;
+  onMultiSelect?: ((id: string, additive: boolean) => void) | undefined;
   onSelect: (id: string | null) => void;
   /** CSV columns plus built-in variables, offered as {{variable}} shortcuts. */
   variables: string[];
@@ -83,6 +85,8 @@ export default function CloneFields({
   clone,
   edit,
   selected,
+  selectedIds,
+  onMultiSelect,
   onSelect,
   variables,
   headers,
@@ -170,6 +174,7 @@ export default function CloneFields({
       <CloneAiPanel
         clone={clone}
         selected={selected}
+        selectedIds={selectedIds}
         variables={variables}
         headers={headers}
         edit={edit}
@@ -206,237 +211,251 @@ export default function CloneFields({
         </p>
       )}
 
-      {clone.fields.map((f) => {
-        const on = selected === f.id;
-        return (
-          <div
-            key={f.id}
-            id={`card-${f.id}`}
-            className={`grid min-w-0 gap-2 rounded-lg border p-3 ${on ? "border-brand bg-secondary/40" : "border-line"}`}
-          >
-            <label htmlFor={f.id} className="min-w-0 text-xs font-semibold text-muted">
-              <span className="mr-1.5 rounded bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-brand">
-                {KIND_BADGE[f.kind]}
-              </span>
-              <span className="break-words">{f.label}</span>
-            </label>
-            <input
-              id={f.id}
-              className="field"
-              value={f.replacement}
-              onFocus={() => onSelect(f.id)}
-              onChange={(e) => update(f.id, { replacement: e.target.value })}
-            />
-            {f.original && (
-              <p className="break-words text-[11px] text-muted">Original text: {f.original}</p>
-            )}
+      {clone.fields
+        .filter((f) => !f.deleted)
+        .map((f) => {
+          const on = selectedIds?.includes(f.id) ?? selected === f.id;
+          return (
+            <div
+              key={f.id}
+              id={`card-${f.id}`}
+              className={`grid min-w-0 gap-2 rounded-lg border p-3 ${on ? "border-brand bg-secondary/40" : "border-line"}`}
+            >
+              <label className="flex gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${f.label}`}
+                  checked={on}
+                  onChange={() => onMultiSelect?.(f.id, true)}
+                />{" "}
+                Select for bulk editing {f.locked ? "(locked)" : ""}
+              </label>
+              <label htmlFor={f.id} className="min-w-0 text-xs font-semibold text-muted">
+                <span className="mr-1.5 rounded bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-brand">
+                  {KIND_BADGE[f.kind]}
+                </span>
+                <span className="break-words">{f.label}</span>
+              </label>
+              <input
+                id={f.id}
+                className="field"
+                value={f.replacement}
+                disabled={f.locked || (!!f.protection && f.protection !== "text")}
+                onFocus={() => onSelect(f.id)}
+                onChange={(e) => update(f.id, { replacement: e.target.value })}
+              />
+              {f.original && (
+                <p className="break-words text-[11px] text-muted">Original text: {f.original}</p>
+              )}
 
-            {on && (
-              <div className="grid gap-3 border-t border-line pt-3">
-                <label className="grid gap-1 text-xs text-muted">
-                  Fill from a column
-                  <select
-                    className="field"
-                    value=""
-                    onChange={(e) =>
-                      e.target.value && update(f.id, { replacement: `{{${e.target.value}}}` })
-                    }
-                  >
-                    <option value="">Choose a column…</option>
-                    {variables.map((v) => (
-                      <option key={v} value={v}>{`{{${v}}}`}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="grid gap-1 text-xs text-muted">
-                  Font
-                  <select
-                    aria-label={`${f.label} font`}
-                    className="field"
-                    value={f.font}
-                    onChange={(e) => update(f.id, { font: e.target.value })}
-                  >
-                    {FONTS.map((font) => (
-                      <option key={font}>{font}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    aria-label="Bold"
-                    aria-pressed={f.bold}
-                    className={`rounded border px-2.5 py-1 text-xs font-bold ${f.bold ? "border-brand bg-brand text-primary-foreground" : "border-line"}`}
-                    onClick={() => update(f.id, { bold: !f.bold })}
-                  >
-                    B
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Italic"
-                    aria-pressed={f.italic}
-                    className={`rounded border px-2.5 py-1 text-xs italic ${f.italic ? "border-brand bg-brand text-primary-foreground" : "border-line"}`}
-                    onClick={() => update(f.id, { italic: !f.italic })}
-                  >
-                    I
-                  </button>
-                  {ALIGNS.map(({ v, label, Icon }) => (
-                    <button
-                      key={v}
-                      type="button"
-                      aria-label={label}
-                      aria-pressed={f.align === v}
-                      className={`rounded border p-1.5 ${f.align === v ? "border-brand bg-brand text-primary-foreground" : "border-line"}`}
-                      onClick={() => update(f.id, { align: v })}
-                    >
-                      <Icon className="size-4" aria-hidden />
-                    </button>
-                  ))}
-                </div>
-
-                <div className="grid gap-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-1.5">
-                      Text colour
-                      <input
-                        aria-label={`${f.label} text colour`}
-                        type="color"
-                        value={f.color}
-                        onChange={(e) => update(f.id, { color: e.target.value })}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 text-brand underline"
-                      onClick={() => onPick({ id: f.id, prop: "color" })}
-                    >
-                      <Crosshair className="size-3.5" aria-hidden /> Pick from certificate
-                    </button>
-                  </div>
-                  <label className="grid gap-1 text-muted">
-                    Remove the old text
+              {on && (
+                <div className="grid gap-3 border-t border-line pt-3">
+                  <label className="grid gap-1 text-xs text-muted">
+                    Fill from a column
                     <select
-                      aria-label={`${f.label} erase mode`}
                       className="field"
-                      value={f.erase}
+                      value=""
                       onChange={(e) =>
-                        update(f.id, {
-                          erase: e.target.value as CloneErase,
-                          ...(e.target.value === "patch" && !f.cover ? { cover: "#ffffff" } : {}),
-                        })
+                        e.target.value && update(f.id, { replacement: `{{${e.target.value}}}` })
                       }
                     >
-                      {ERASE_MODES.map((m) => (
-                        <option key={m.v} value={m.v}>
-                          {m.label}
-                        </option>
+                      <option value="">Choose a column…</option>
+                      {variables.map((v) => (
+                        <option key={v} value={v}>{`{{${v}}}`}</option>
                       ))}
                     </select>
                   </label>
-                  {f.erase === "patch" && (
+
+                  <label className="grid gap-1 text-xs text-muted">
+                    Font
+                    <select
+                      aria-label={`${f.label} font`}
+                      className="field"
+                      value={f.font}
+                      onChange={(e) => update(f.id, { font: e.target.value })}
+                    >
+                      {FONTS.map((font) => (
+                        <option key={font}>{font}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label="Bold"
+                      aria-pressed={f.bold}
+                      className={`rounded border px-2.5 py-1 text-xs font-bold ${f.bold ? "border-brand bg-brand text-primary-foreground" : "border-line"}`}
+                      onClick={() => update(f.id, { bold: !f.bold })}
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Italic"
+                      aria-pressed={f.italic}
+                      className={`rounded border px-2.5 py-1 text-xs italic ${f.italic ? "border-brand bg-brand text-primary-foreground" : "border-line"}`}
+                      onClick={() => update(f.id, { italic: !f.italic })}
+                    >
+                      I
+                    </button>
+                    {ALIGNS.map(({ v, label, Icon }) => (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-label={label}
+                        aria-pressed={f.align === v}
+                        className={`rounded border p-1.5 ${f.align === v ? "border-brand bg-brand text-primary-foreground" : "border-line"}`}
+                        onClick={() => update(f.id, { align: v })}
+                      >
+                        <Icon className="size-4" aria-hidden />
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="grid gap-2 text-xs">
                     <div className="flex flex-wrap items-center gap-2">
                       <label className="flex items-center gap-1.5">
-                        Patch colour
+                        Text colour
                         <input
-                          aria-label={`${f.label} patch colour`}
+                          aria-label={`${f.label} text colour`}
                           type="color"
-                          value={f.cover || "#ffffff"}
-                          onChange={(e) => update(f.id, { cover: e.target.value })}
+                          value={f.color}
+                          onChange={(e) => update(f.id, { color: e.target.value })}
                         />
                       </label>
                       <button
                         type="button"
                         className="inline-flex items-center gap-1 text-brand underline"
-                        onClick={() => onPick({ id: f.id, prop: "cover" })}
+                        onClick={() => onPick({ id: f.id, prop: "color" })}
                       >
                         <Crosshair className="size-3.5" aria-hidden /> Pick from certificate
                       </button>
                     </div>
-                  )}
-                  <p className="text-[11px] text-muted">
-                    {f.erase === "smart"
-                      ? "Erases only the pixels of the old writing and keeps printed dotted lines, rules and neighbouring words. Boxes only need to roughly cover it."
-                      : f.erase === "patch"
-                        ? "Paints one flat colour over the whole box. It also removes anything printed inside the box, such as dotted lines."
-                        : "The old text stays as it is. Use this for a blank space."}
-                  </p>
-                  <label className="grid gap-1 text-muted">
-                    Stroke thickness to match (px, 0 = font as is)
-                    <input
-                      aria-label={`${f.label} stroke thickness`}
-                      className="field"
-                      type="number"
-                      min={0}
-                      max={12}
-                      step={0.5}
-                      value={f.weight}
-                      onChange={(e) =>
-                        update(f.id, { weight: Math.min(12, Math.max(0, Number(e.target.value))) })
-                      }
-                    />
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {GEOMETRY.map(([key, label]) => (
-                    <label key={key} className="text-xs text-muted">
-                      {label}
-                      <input
+                    <label className="grid gap-1 text-muted">
+                      Remove the old text
+                      <select
+                        aria-label={`${f.label} erase mode`}
                         className="field"
-                        type="number"
-                        min={key === "x" || key === "y" ? 0 : 1}
-                        value={Math.round(f[key])}
+                        value={f.erase}
                         onChange={(e) =>
                           update(f.id, {
-                            [key]: Math.max(
-                              key === "x" || key === "y" ? 0 : 1,
-                              Number(e.target.value),
-                            ),
+                            erase: e.target.value as CloneErase,
+                            ...(e.target.value === "patch" && !f.cover ? { cover: "#ffffff" } : {}),
+                          })
+                        }
+                      >
+                        {ERASE_MODES.map((m) => (
+                          <option key={m.v} value={m.v}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {f.erase === "patch" && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="flex items-center gap-1.5">
+                          Patch colour
+                          <input
+                            aria-label={`${f.label} patch colour`}
+                            type="color"
+                            value={f.cover || "#ffffff"}
+                            onChange={(e) => update(f.id, { cover: e.target.value })}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 text-brand underline"
+                          onClick={() => onPick({ id: f.id, prop: "cover" })}
+                        >
+                          <Crosshair className="size-3.5" aria-hidden /> Pick from certificate
+                        </button>
+                      </div>
+                    )}
+                    <p className="text-[11px] text-muted">
+                      {f.erase === "smart"
+                        ? "Erases only the pixels of the old writing and keeps printed dotted lines, rules and neighbouring words. Boxes only need to roughly cover it."
+                        : f.erase === "patch"
+                          ? "Paints one flat colour over the whole box. It also removes anything printed inside the box, such as dotted lines."
+                          : "The old text stays as it is. Use this for a blank space."}
+                    </p>
+                    <label className="grid gap-1 text-muted">
+                      Stroke thickness to match (px, 0 = font as is)
+                      <input
+                        aria-label={`${f.label} stroke thickness`}
+                        className="field"
+                        type="number"
+                        min={0}
+                        max={12}
+                        step={0.5}
+                        value={f.weight}
+                        onChange={(e) =>
+                          update(f.id, {
+                            weight: Math.min(12, Math.max(0, Number(e.target.value))),
                           })
                         }
                       />
                     </label>
-                  ))}
-                </div>
+                  </div>
 
-                <div className="flex flex-wrap gap-3 text-xs">
-                  {f.original.trim() && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {GEOMETRY.map(([key, label]) => (
+                      <label key={key} className="text-xs text-muted">
+                        {label}
+                        <input
+                          className="field"
+                          type="number"
+                          min={key === "x" || key === "y" ? 0 : 1}
+                          value={Math.round(f[key])}
+                          onChange={(e) =>
+                            update(f.id, {
+                              [key]: Math.max(
+                                key === "x" || key === "y" ? 0 : 1,
+                                Number(e.target.value),
+                              ),
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 text-xs">
+                    {f.original.trim() && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 text-brand underline"
+                        disabled={fitting}
+                        onClick={() => fit(f.id)}
+                      >
+                        <ScanText className="size-3.5" aria-hidden /> Fit box to the writing
+                      </button>
+                    )}
+                    {f.original && (
+                      <button
+                        type="button"
+                        className="text-brand underline"
+                        onClick={() => update(f.id, { replacement: f.original })}
+                      >
+                        Restore original text
+                      </button>
+                    )}
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1 text-brand underline"
-                      disabled={fitting}
-                      onClick={() => fit(f.id)}
+                      className="inline-flex items-center gap-1 text-destructive underline"
+                      onClick={() => {
+                        edit((c) => removeField(c, f.id));
+                        onSelect(null);
+                      }}
                     >
-                      <ScanText className="size-3.5" aria-hidden /> Fit box to the writing
+                      <Trash2 className="size-3.5" aria-hidden /> Remove box
                     </button>
-                  )}
-                  {f.original && (
-                    <button
-                      type="button"
-                      className="text-brand underline"
-                      onClick={() => update(f.id, { replacement: f.original })}
-                    >
-                      Restore original text
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 text-destructive underline"
-                    onClick={() => {
-                      edit((c) => removeField(c, f.id));
-                      onSelect(null);
-                    }}
-                  >
-                    <Trash2 className="size-3.5" aria-hidden /> Remove box
-                  </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
+              )}
+            </div>
+          );
+        })}
 
       {clone.suggestions.length > 0 && (
         <details className="rounded-lg border border-line p-3">

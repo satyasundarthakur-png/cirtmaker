@@ -1,3 +1,4 @@
+import { authorizedText } from "./editing/SelectionManager";
 import { loadCloneImage } from "./clone-image";
 import { analyseInk, fitToInk, windowFor, type InkAnalysis, type Pixels } from "./clone-erase";
 import type { Box } from "./clone-geometry";
@@ -14,7 +15,10 @@ const MAX_CACHED = 60;
 const cache = new WeakMap<HTMLImageElement, Map<string, Promise<ErasePatch>>>();
 
 /** Static printed text that must never be erased: everything that was found but is not an editable field. */
-export const protectBoxes = (clone: CloneSource): Box[] => clone.suggestions.map((s) => ({ x: s.x, y: s.y, w: s.w, h: s.h }));
+export const protectBoxes = (clone: CloneSource, excludeId?: string): Box[] =>
+  [...clone.suggestions, ...clone.fields.filter((f) => !authorizedText(f) && !f.deleted)]
+    .filter((f) => f.id !== excludeId)
+    .map((s) => ({ id: s.id, x: s.x, y: s.y, w: s.w, h: s.h }));
 
 /** Read a window of the original at its own resolution (no scaling, so no resampling). */
 function readWindow(img: HTMLImageElement, win: Box): Pixels {
@@ -30,8 +34,19 @@ function readWindow(img: HTMLImageElement, win: Box): Pixels {
 
 function analyse(img: HTMLImageElement, box: Box, protect: Box[], loose: boolean): InkAnalysis {
   const win = windowFor(box, img.naturalWidth, img.naturalHeight);
-  if (win.w === 0 || win.h === 0) return analyseInk({ data: new Uint8ClampedArray(0), width: 0, height: 0 }, win, { box, protect, imageWidth: img.naturalWidth, loose });
-  return analyseInk(readWindow(img, win), win, { box, protect, imageWidth: img.naturalWidth, loose });
+  if (win.w === 0 || win.h === 0)
+    return analyseInk({ data: new Uint8ClampedArray(0), width: 0, height: 0 }, win, {
+      box,
+      protect,
+      imageWidth: img.naturalWidth,
+      loose,
+    });
+  return analyseInk(readWindow(img, win), win, {
+    box,
+    protect,
+    imageWidth: img.naturalWidth,
+    loose,
+  });
 }
 
 function toPatch(a: InkAnalysis): ErasePatch {
@@ -55,13 +70,29 @@ function toPatch(a: InkAnalysis): ErasePatch {
 }
 
 /** The smart-erase patch for a field. Cached per image and per box, so dragging stays responsive. */
-export function erasePatchFor(img: HTMLImageElement, f: CloneTextField, protect: Box[]): Promise<ErasePatch> {
+export function erasePatchFor(
+  img: HTMLImageElement,
+  f: CloneTextField,
+  protect: Box[],
+): Promise<ErasePatch> {
+  const source = f.sourceBox ?? f;
   let perImage = cache.get(img);
-  if (!perImage) { perImage = new Map(); cache.set(img, perImage); }
-  const key = [f.x, f.y, f.w, f.h, ...protect.flatMap((p) => [Math.round(p.x), Math.round(p.y), Math.round(p.w), Math.round(p.h)])].join("|");
+  if (!perImage) {
+    perImage = new Map();
+    cache.set(img, perImage);
+  }
+  const key = [
+    source.x,
+    source.y,
+    source.w,
+    source.h,
+    ...protect.flatMap((p) => [Math.round(p.x), Math.round(p.y), Math.round(p.w), Math.round(p.h)]),
+  ].join("|");
   const hit = perImage.get(key);
   if (hit) return hit;
-  const made = Promise.resolve().then(() => toPatch(analyse(img, { x: f.x, y: f.y, w: f.w, h: f.h }, protect, false)));
+  const made = Promise.resolve().then(() =>
+    toPatch(analyse(img, { x: source.x, y: source.y, w: source.w, h: source.h }, protect, false)),
+  );
   perImage.set(key, made);
   if (perImage.size > MAX_CACHED) perImage.delete(perImage.keys().next().value as string);
   return made;
@@ -76,7 +107,7 @@ export async function fitFieldsToInk(clone: CloneSource, only?: string): Promise
   const protect = protectBoxes(clone);
   const size = { width: img.naturalWidth, height: img.naturalHeight };
   const fields = clone.fields.map((f) => {
-    if (only && f.id !== only) return f;
+    if ((only && f.id !== only) || !authorizedText(f)) return f;
     if (!f.original.trim()) return f; // a box added by hand has no old writing to fit
     const fit = fitToInk(analyse(img, { x: f.x, y: f.y, w: f.w, h: f.h }, protect, true), f, size);
     return fit ? { ...f, ...fit } : f;

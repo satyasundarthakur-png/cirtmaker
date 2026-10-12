@@ -8,7 +8,8 @@ export interface CloneEdit {
   /** The template being edited. May differ in text from the preview when a CSV row is being previewed. */
   clone: CloneSource;
   selected: string | null;
-  onSelect: (id: string | null) => void;
+  selectedIds?: string[] | undefined;
+  onSelect: (id: string | null, additive?: boolean) => void;
   onChange: (id: string, patch: Partial<CloneTextField>) => void;
   onRemove: (id: string) => void;
   /** When set, the next click on the certificate reports the original-image pixel clicked. */
@@ -74,7 +75,11 @@ export default function Preview({ data, selected, onSelect, zoom = 1, cloneEdit 
     if (busy || error) return;
     if (cloneEdit) {
       const c = cloneEdit.clone;
-      if (cloneEdit.onPixel) cloneEdit.onPixel(((e.clientX - r.left) / r.width) * c.width, ((e.clientY - r.top) / r.height) * c.height);
+      if (cloneEdit.onPixel)
+        cloneEdit.onPixel(
+          ((e.clientX - r.left) / r.width) * c.width,
+          ((e.clientY - r.top) / r.height) * c.height,
+        );
       else cloneEdit.onSelect(null);
       return;
     }
@@ -89,23 +94,65 @@ export default function Preview({ data, selected, onSelect, zoom = 1, cloneEdit 
   const sel = regions.find((g) => g.id === selected);
 
   return (
-    <div className={`relative mx-auto ${cloneEdit?.onPixel ? "cursor-crosshair" : "cursor-pointer"} overflow-hidden rounded-sm border border-line bg-card shadow-[0_10px_40px_-12px_rgba(15,23,42,0.35)]`} style={{ width: `${zoom * 100}%` }} onClick={click}>
+    <div
+      className={`relative mx-auto ${cloneEdit?.onPixel ? "cursor-crosshair" : "cursor-pointer"} overflow-hidden rounded-sm border border-line bg-card shadow-[0_10px_40px_-12px_rgba(15,23,42,0.35)]`}
+      style={{ width: `${zoom * 100}%` }}
+      onClick={click}
+    >
       <div className="relative" style={{ aspectRatio: `1000 / ${H}` }}>
-      <canvas ref={ref} className="block h-full w-full" role="img" aria-label={cloneEdit ? "Original certificate with editable text boxes on top." : `Certificate preview for ${data.recipient}. Click a part of the certificate to edit its text.`} />
-      {cloneEdit && !error && (
-        <CloneOverlay clone={cloneEdit.clone} selected={cloneEdit.selected} passive={!!cloneEdit.onPixel} onSelect={cloneEdit.onSelect} onChange={cloneEdit.onChange} onRemove={cloneEdit.onRemove} />
-      )}
-      {sel && !cloneEdit && !busy && !error && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute rounded border-2 border-dashed border-brand"
-          style={{ left: `${(sel.x / 1000) * 100}%`, top: `${(sel.y / H) * 100}%`, width: `${(sel.w / 1000) * 100}%`, height: `${(sel.h / H) * 100}%` }}
-        >
-          <span className="absolute -top-5 left-0 rounded bg-brand px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{sel.label}</span>
-        </div>
-      )}
-      {busy && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-card/50 text-sm text-muted" role="status">Rendering…</div>}
-      {error && <div className="absolute inset-0 grid place-items-center bg-card/90 p-4 text-center text-sm text-destructive" role="alert">{error}</div>}
+        <canvas
+          ref={ref}
+          className="block h-full w-full"
+          role="img"
+          aria-label={
+            cloneEdit
+              ? "Original certificate with editable text boxes on top."
+              : `Certificate preview for ${data.recipient}. Click a part of the certificate to edit its text.`
+          }
+        />
+        {cloneEdit && !error && (
+          <CloneOverlay
+            clone={cloneEdit.clone}
+            selected={cloneEdit.selected}
+            selectedIds={cloneEdit.selectedIds}
+            passive={!!cloneEdit.onPixel}
+            onSelect={cloneEdit.onSelect}
+            onChange={cloneEdit.onChange}
+            onRemove={cloneEdit.onRemove}
+          />
+        )}
+        {sel && !cloneEdit && !busy && !error && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute rounded border-2 border-dashed border-brand"
+            style={{
+              left: `${(sel.x / 1000) * 100}%`,
+              top: `${(sel.y / H) * 100}%`,
+              width: `${(sel.w / 1000) * 100}%`,
+              height: `${(sel.h / H) * 100}%`,
+            }}
+          >
+            <span className="absolute -top-5 left-0 rounded bg-brand px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+              {sel.label}
+            </span>
+          </div>
+        )}
+        {busy && (
+          <div
+            className="pointer-events-none absolute inset-0 grid place-items-center bg-card/50 text-sm text-muted"
+            role="status"
+          >
+            Rendering…
+          </div>
+        )}
+        {error && (
+          <div
+            className="absolute inset-0 grid place-items-center bg-card/90 p-4 text-center text-sm text-destructive"
+            role="alert"
+          >
+            {error}
+          </div>
+        )}
       </div>
     </div>
   );

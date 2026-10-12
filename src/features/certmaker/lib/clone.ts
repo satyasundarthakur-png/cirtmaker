@@ -1,6 +1,7 @@
 import { buildLines, detectFields, type Detected, type RawItem } from "./clone-detect";
 import { clampBox, clonePageMm, isCentered } from "./clone-geometry";
 import { fitFieldsToInk, type ErasePatch } from "./clone-erase-canvas";
+import { authorizedText } from "./editing/SelectionManager";
 import { fitCloneText } from "./clone-text-layout";
 import type { CloneKind, CloneSource, CloneTextField } from "./types";
 
@@ -19,7 +20,14 @@ const MAX_SUGGESTIONS = 80;
 
 /* ---------- fields ---------- */
 
-export function cloneField(text: string, x: number, y: number, w: number, h: number, index: number): CloneTextField {
+export function cloneField(
+  text: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  index: number,
+): CloneTextField {
   return {
     id: `clone-${index}`,
     kind: "custom",
@@ -43,28 +51,45 @@ export function cloneField(text: string, x: number, y: number, w: number, h: num
 }
 
 /** A field is only painted once its text differs from the original. Untouched fields leave the artwork alone. */
-export const isActive = (f: CloneTextField) => f.replacement !== f.original || f.redraw === true;
+export const isActive = (f: CloneTextField) =>
+  f.replacement !== f.original || f.redraw === true || f.deleted === true;
 
 const GENERIC = new Set(["serif", "sans-serif", "cursive", "monospace"]);
 
 /** Typical stem thickness of each font as a fraction of its size, so thickness is only added to fonts that are thinner than the writing. */
 const STEM: Record<string, number> = {
-  Inter: 0.09, Montserrat: 0.095, "Playfair Display": 0.075, "Cormorant Garamond": 0.045, "Great Vibes": 0.03,
-  "Noto Sans Oriya": 0.08, "Noto Sans Devanagari": 0.08, serif: 0.07, "sans-serif": 0.085,
+  Inter: 0.09,
+  Montserrat: 0.095,
+  "Playfair Display": 0.075,
+  "Cormorant Garamond": 0.045,
+  "Great Vibes": 0.03,
+  "Noto Sans Oriya": 0.08,
+  "Noto Sans Devanagari": 0.08,
+  serif: 0.07,
+  "sans-serif": 0.085,
 };
 
 /** Extra outline thickness (image px) that brings a thin font up to the stroke thickness of the writing it replaces. */
-export function extraStroke(f: Pick<CloneTextField, "font" | "bold" | "weight">, size: number): number {
+export function extraStroke(
+  f: Pick<CloneTextField, "font" | "bold" | "weight">,
+  size: number,
+): number {
   if (f.weight <= 0) return 0;
   const natural = (STEM[f.font] ?? 0.08) * size * (f.bold ? 1.6 : 1);
   // half the shortfall, and never more than 3.5% of the size: enough to look as dark, not so much that letters fill in
   return Math.max(0, Math.min(0.5 * (f.weight - natural), 0.035 * size));
 }
 
-export function fontCss(f: Pick<CloneTextField, "font" | "bold" | "italic">, size: number) {
-  const lead = `${f.italic ? "italic " : ""}${f.bold ? 700 : 400} ${size}px`;
+export function fontCss(
+  f: Pick<CloneTextField, "font" | "bold" | "italic" | "fontWeight">,
+  size: number,
+) {
+  const lead = `${f.italic ? "italic " : ""}${f.fontWeight ?? (f.bold ? 700 : 400)} ${size}px`;
   if (GENERIC.has(f.font)) return `${lead} ${f.font}`;
-  const fallback = /playfair|cormorant|garamond|serif/i.test(f.font) && !/sans/i.test(f.font) ? "serif" : "sans-serif";
+  const fallback =
+    /playfair|cormorant|garamond|serif/i.test(f.font) && !/sans/i.test(f.font)
+      ? "serif"
+      : "sans-serif";
   return `${lead} "${f.font}", ${fallback}`;
 }
 
@@ -74,49 +99,146 @@ export function fontCss(f: Pick<CloneTextField, "font" | "bold" | "italic">, siz
  *  - "patch": a flat rectangle in the cover colour, clipped to the box;
  *  - "none": nothing is removed.
  */
-export function paintCloneFields(ctx: CanvasRenderingContext2D, fields: CloneTextField[], patches?: ReadonlyMap<string, ErasePatch>) {
-  for (const f of fields) {
-    if (!isActive(f)) continue;
-    if (![f.x, f.y, f.w, f.h, f.fontSize].every(Number.isFinite) || f.w <= 0 || f.h <= 0 || f.fontSize <= 0) continue;
-    ctx.save();
+export function paintCloneFields(
+  ctx: CanvasRenderingContext2D,
+  fields: CloneTextField[],
+  patches?: ReadonlyMap<string, ErasePatch>,
+  protectedAreas: readonly { id?: string; x: number; y: number; w: number; h: number }[] = [],
+) {
+  // Erase original ink first, then paint all replacement layers. Moving one must not erase another.
+  for (const f of fields.filter(isActive)) {
+    const source = f.sourceBox ?? f;
+    if (
+      ![source.x, source.y, source.w, source.h].every(Number.isFinite) ||
+      source.w <= 0 ||
+      source.h <= 0
+    )
+      continue;
     if (f.erase === "smart") {
       const patch = patches?.get(f.id);
       if (patch) ctx.drawImage(patch.canvas, patch.x, patch.y);
-    } else if (f.erase === "patch") {
+    } else if (f.erase === "patch" && f.cover) {
+      ctx.save();
       ctx.beginPath();
-      ctx.rect(f.x, f.y, f.w, f.h);
+      ctx.rect(source.x, source.y, source.w, source.h);
       ctx.clip();
-      if (f.cover) {
-        ctx.fillStyle = f.cover;
-        ctx.fillRect(f.x, f.y, f.w, f.h);
-      }
+      ctx.fillStyle = f.cover;
+      ctx.fillRect(source.x, source.y, source.w, source.h);
+      ctx.restore();
     }
-    if (f.replacement.trim()) {
-      const padX = Math.min(2, f.w * 0.05);
-      const padY = Math.min(2, f.h * 0.05);
-      const text = f.replacement.replace(/[\r\n\t]+/g, " ");
-      ctx.textAlign = f.align;
-      ctx.textBaseline = "alphabetic";
-      const { size, ascent, descent } = fitCloneText(ctx, text, (s) => fontCss(f, s), f.fontSize, f.w - 2 * padX, f.h - 2 * padY);
-      // All erase modes use the same text boundary; only the text is clipped here.
+  }
+  for (const f of fields) {
+    if (!isActive(f) || f.deleted || !f.replacement.trim()) continue;
+    if (
+      ![f.x, f.y, f.w, f.h, f.fontSize].every(Number.isFinite) ||
+      f.w <= 0 ||
+      f.h <= 0 ||
+      f.fontSize <= 0
+    )
+      continue;
+    ctx.save();
+    for (const area of protectedAreas) {
+      if (area.id === f.id) continue;
       ctx.beginPath();
-      ctx.rect(f.x, f.y, f.w, f.h);
-      ctx.clip();
-      ctx.fillStyle = f.color;
-      ctx.textAlign = f.align;
-      ctx.textBaseline = "alphabetic";
-      const tx = f.align === "center" ? f.x + f.w / 2 : f.align === "right" ? f.x + f.w - padX : f.x + padX;
-      const ty = f.y + (f.h + ascent - descent) / 2;
-      const extra = extraStroke(f, size);
+      ctx.rect(-1000000, -1000000, 2000000, 2000000);
+      ctx.rect(area.x, area.y, area.w, area.h);
+      ctx.clip("evenodd");
+    }
+    if (f.rotation) {
+      ctx.translate(f.x + f.w / 2, f.y + f.h / 2);
+      ctx.rotate((f.rotation * Math.PI) / 180);
+      ctx.translate(-f.x - f.w / 2, -f.y - f.h / 2);
+    }
+    ctx.beginPath();
+    ctx.rect(f.x, f.y, f.w, f.h);
+    ctx.clip();
+    ctx.globalAlpha = f.opacity ?? 1;
+    const padX = Math.min(2, f.w * 0.05),
+      padY = Math.min(2, f.h * 0.05);
+    let lines = f.replacement.replace(/\t/g, " ").split(/\r?\n/);
+    if (f.multiline) {
+      ctx.font = fontCss(f, f.fontSize);
+      lines = lines.flatMap((paragraph) => {
+        const wrapped: string[] = [];
+        let line = "";
+        for (const word of paragraph.split(/\s+/)) {
+          const next = line ? `${line} ${word}` : word;
+          if (line && ctx.measureText(next).width > f.w - 4) {
+            wrapped.push(line);
+            line = word;
+          } else line = next;
+        }
+        wrapped.push(line);
+        return wrapped;
+      });
+    }
+    const spacing = f.letterSpacing ?? 0;
+    const nativeSpacing = Reflect.has(ctx, "letterSpacing");
+    if (nativeSpacing) (ctx as unknown as { letterSpacing: string }).letterSpacing = `${spacing}px`;
+    let size = f.fontSize;
+    for (const line of lines)
+      size = Math.min(
+        size,
+        fitCloneText(
+          ctx,
+          line,
+          (s) => fontCss(f, s),
+          size,
+          f.w - 2 * padX - (nativeSpacing ? 0 : Math.max(0, line.length - 1) * spacing),
+          f.h - 2 * padY,
+        ).size,
+      );
+    size = Math.min(
+      size,
+      (f.h - 2 * padY) / (1 + Math.max(0, lines.length - 1) * (f.lineHeight ?? 1.2)),
+    );
+    ctx.font = fontCss(f, size);
+    ctx.fillStyle = f.color;
+    ctx.textAlign = f.align;
+    ctx.textBaseline = "alphabetic";
+    const metrics = ctx.measureText(lines[0] ?? "A");
+    const ascent = metrics.actualBoundingBoxAscent ?? size * 0.8,
+      descent = metrics.actualBoundingBoxDescent ?? size * 0.2;
+    const gap = size * (f.lineHeight ?? 1.2);
+    const blockHeight = ascent + descent + (lines.length - 1) * gap;
+    const tx =
+      f.align === "center" ? f.x + f.w / 2 : f.align === "right" ? f.x + f.w - padX : f.x + padX;
+    const startY =
+      f.baselineOffset !== undefined
+        ? f.y + (f.baselineOffset * f.h) / (f.sourceBox?.h ?? f.h)
+        : f.y + (f.h - blockHeight) / 2 + ascent;
+    const fx = f.textEffects;
+    if (fx) {
+      ctx.shadowColor = fx.shadowColor;
+      ctx.shadowBlur = fx.shadowBlur;
+      ctx.shadowOffsetX = fx.shadowX;
+      ctx.shadowOffsetY = fx.shadowY;
+    }
+    lines.forEach((line, i) => {
+      const extra = fx?.strokeWidth ?? extraStroke(f, size);
       if (extra >= 0.3) {
-        // thickens thin strokes so the new text is not faint next to heavy handwriting
-        ctx.strokeStyle = f.color;
+        ctx.strokeStyle = fx?.strokeColor ?? f.color;
         ctx.lineWidth = extra;
         ctx.lineJoin = "round";
-        ctx.strokeText(text, tx, ty);
+        ctx.strokeText(line, tx, startY + i * gap);
       }
-      ctx.fillText(text, tx, ty);
-    }
+      if (spacing && !nativeSpacing) {
+        const segments = Array.from(
+          new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(line),
+          (s) => s.segment,
+        );
+        const width =
+          segments.reduce((n, g) => n + ctx.measureText(g).width, 0) +
+          Math.max(0, segments.length - 1) * spacing;
+        let x = tx - (f.align === "center" ? width / 2 : f.align === "right" ? width : 0);
+        ctx.textAlign = "left";
+        segments.forEach((g) => {
+          ctx.fillText(g, x, startY + i * gap);
+          x += ctx.measureText(g).width + spacing;
+        });
+        ctx.textAlign = f.align;
+      } else ctx.fillText(line, tx, startY + i * gap);
+    });
     ctx.restore();
   }
 }
@@ -146,17 +268,31 @@ export async function samplePixel(src: string, x: number, y: number): Promise<st
 function styleFromHint(hint: string): Pick<CloneTextField, "font" | "bold" | "italic"> {
   const bold = /bold|black|heavy|semibold|demi/i.test(hint);
   const italic = /italic|oblique/i.test(hint);
-  const script = /script|vibes|brush|signature|cursive|lobster|pacifico|zapf|chancery|handwrit/i.test(hint);
-  const serif = (/serif/i.test(hint) && !/sans/i.test(hint)) || /times|georgia|garamond|playfair|cormorant|palatino|bookman|minion|cambria/i.test(hint);
-  return { font: script ? "Great Vibes" : serif ? "Playfair Display" : "Inter", bold: bold && !script, italic: italic && !script };
+  const script =
+    /script|vibes|brush|signature|cursive|lobster|pacifico|zapf|chancery|handwrit/i.test(hint);
+  const serif =
+    (/serif/i.test(hint) && !/sans/i.test(hint)) ||
+    /times|georgia|garamond|playfair|cormorant|palatino|bookman|minion|cambria/i.test(hint);
+  return {
+    font: script ? "Great Vibes" : serif ? "Playfair Display" : "Inter",
+    bold: bold && !script,
+    italic: italic && !script,
+  };
 }
 
 /** Build an editable field from a detected piece of text. Shared by OCR/PDF detection and optional AI detection. */
-export function fieldFromDetected(d: Detected, id: string, page: { w: number; h: number }): CloneTextField {
+export function fieldFromDetected(
+  d: Detected,
+  id: string,
+  page: { w: number; h: number },
+): CloneTextField {
   const size = Math.max(8, d.size);
   const padX = Math.max(3, size * 0.15);
   const padY = Math.max(2, size * 0.12);
-  const box = clampBox({ x: d.box.x - padX, y: d.box.y - padY, w: d.box.w + 2 * padX, h: d.box.h + 2 * padY }, page);
+  const box = clampBox(
+    { x: d.box.x - padX, y: d.box.y - padY, w: d.box.w + 2 * padX, h: d.box.h + 2 * padY },
+    page,
+  );
   const text = d.text.trim();
   return {
     id,
@@ -180,7 +316,18 @@ function detectionToFields(items: RawItem[], page: { w: number; h: number }) {
   let n = 0;
   const editable = fields.map((d) => fieldFromDetected(d, `clone-${n++}`, page));
   const others = rest.slice(0, MAX_SUGGESTIONS).map((l) =>
-    fieldFromDetected({ kind: "custom", label: "Other text", box: { x: l.x, y: l.y, w: l.w, h: l.h }, text: l.text, size: l.size, fontHint: l.fontHint }, `clone-${n++}`, page),
+    fieldFromDetected(
+      {
+        kind: "custom",
+        label: "Other text",
+        box: { x: l.x, y: l.y, w: l.w, h: l.h },
+        text: l.text,
+        size: l.size,
+        fontHint: l.fontHint,
+      },
+      `clone-${n++}`,
+      page,
+    ),
   );
   return { fields: editable, suggestions: others };
 }
@@ -199,10 +346,19 @@ async function ocrItems(canvas: HTMLCanvasElement): Promise<RawItem[]> {
   const worker = await createWorker("eng");
   try {
     const result = await worker.recognize(source, {}, { blocks: true });
-    const words = result.data.blocks?.flatMap((b) => b.paragraphs.flatMap((p) => p.lines.flatMap((l) => l.words))) ?? [];
+    const words =
+      result.data.blocks?.flatMap((b) =>
+        b.paragraphs.flatMap((p) => p.lines.flatMap((l) => l.words)),
+      ) ?? [];
     return words
       .filter((w) => w.text.trim() && w.confidence >= 40)
-      .map((w) => ({ text: w.text.trim(), x: w.bbox.x0 / k, y: w.bbox.y0 / k, w: (w.bbox.x1 - w.bbox.x0) / k, h: (w.bbox.y1 - w.bbox.y0) / k }));
+      .map((w) => ({
+        text: w.text.trim(),
+        x: w.bbox.x0 / k,
+        y: w.bbox.y0 / k,
+        w: (w.bbox.x1 - w.bbox.x0) / k,
+        h: (w.bbox.y1 - w.bbox.y0) / k,
+      }));
   } finally {
     await worker.terminate();
   }
@@ -228,7 +384,10 @@ function readDataUrl(blob: Blob): Promise<string> {
 }
 
 async function loadPdf(file: File): Promise<CloneSource> {
-  const [pdfjs, workerAsset] = await Promise.all([import("pdfjs-dist"), import("pdfjs-dist/build/pdf.worker.min.mjs?url")]);
+  const [pdfjs, workerAsset] = await Promise.all([
+    import("pdfjs-dist"),
+    import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
+  ]);
   pdfjs.GlobalWorkerOptions.workerSrc = workerAsset.default;
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
   try {
@@ -264,7 +423,9 @@ async function loadPdf(file: File): Promise<CloneSource> {
       });
     }
     const page2 = { w: canvas.width, h: canvas.height };
-    let { fields, suggestions } = items.length ? detectionToFields(items, page2) : { fields: [], suggestions: [] };
+    let { fields, suggestions } = items.length
+      ? detectionToFields(items, page2)
+      : { fields: [], suggestions: [] };
     if (!items.length) ({ fields, suggestions } = detectionToFields(await ocrItems(canvas), page2)); // scanned PDF
     return fitFieldsToInk({
       image: canvas.toDataURL("image/png"),
@@ -272,7 +433,10 @@ async function loadPdf(file: File): Promise<CloneSource> {
       height: canvas.height,
       filename: file.name,
       kind: "pdf",
-      pageMm: [Math.round(((base.width * 25.4) / 72) * 10) / 10, Math.round(((base.height * 25.4) / 72) * 10) / 10],
+      pageMm: [
+        Math.round(((base.width * 25.4) / 72) * 10) / 10,
+        Math.round(((base.height * 25.4) / 72) * 10) / 10,
+      ],
       fields,
       suggestions,
     });
@@ -293,8 +457,19 @@ async function loadImage(file: File, mime: string): Promise<CloneSource> {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas rendering is unavailable.");
   ctx.drawImage(img, 0, 0);
-  const { fields, suggestions } = detectionToFields(await ocrItems(canvas), { w: width, h: height });
-  return fitFieldsToInk({ image, width, height, filename: file.name, kind: "image", fields, suggestions });
+  const { fields, suggestions } = detectionToFields(await ocrItems(canvas), {
+    w: width,
+    h: height,
+  });
+  return fitFieldsToInk({
+    image,
+    width,
+    height,
+    filename: file.name,
+    kind: "image",
+    fields,
+    suggestions,
+  });
 }
 
 export async function loadClone(file: File): Promise<CloneSource> {
@@ -302,18 +477,28 @@ export async function loadClone(file: File): Promise<CloneSource> {
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) return loadPdf(file);
   const mime = mimeFor(file);
   if (mime) return loadImage(file, mime);
-  throw new Error("Clone Mode needs a PDF, PNG or JPG to lock the original layout. Export Word files to PDF first.");
+  throw new Error(
+    "Clone Mode needs a PDF, PNG or JPG to lock the original layout. Export Word files to PDF first.",
+  );
 }
 
 /* ---------- editing operations (pure) ---------- */
 
 /** Template variable each kind of field is normally filled from. */
-export const KIND_VARIABLE: Record<CloneKind, string | null> = { name: "name", certId: "certificate_id", date: "date", course: "course", custom: null };
+export const KIND_VARIABLE: Record<CloneKind, string | null> = {
+  name: "name",
+  certId: "certificate_id",
+  date: "date",
+  course: "course",
+  custom: null,
+};
 
 const byPosition = (a: CloneTextField, b: CloneTextField) => a.y - b.y || a.x - b.x;
 
 export function nextIndex(c: CloneSource) {
-  const nums = [...c.fields, ...c.suggestions].map((f) => Number(/^clone-(\d+)$/.exec(f.id)?.[1] ?? -1));
+  const nums = [...c.fields, ...c.suggestions].map((f) =>
+    Number(/^clone-(\d+)$/.exec(f.id)?.[1] ?? -1),
+  );
   return Math.max(-1, ...nums) + 1;
 }
 
@@ -323,40 +508,106 @@ export function mergeFit(current: CloneSource, fitted: CloneSource): CloneSource
   return {
     ...current,
     fields: current.fields.map((f) => {
+      if (!authorizedText(f)) return f;
       const t = byId.get(f.id);
-      return t ? { ...f, x: t.x, y: t.y, w: t.w, h: t.h, fontSize: t.fontSize, color: t.color, weight: t.weight } : f;
+      return t
+        ? {
+            ...f,
+            x: t.x,
+            y: t.y,
+            w: t.w,
+            h: t.h,
+            fontSize: t.fontSize,
+            color: t.color,
+            weight: t.weight,
+          }
+        : f;
     }),
   };
 }
 
-export function patchField(c: CloneSource, id: string, patch: Partial<CloneTextField>): CloneSource {
-  return { ...c, fields: c.fields.map((f) => {
-    if (f.id !== id) return f;
-    const next = { ...f, ...patch };
-    if (["font", "fontSize", "color", "bold", "italic", "align", "weight"].some((key) => key in patch)) next.redraw = true;
-    if (patch.replacement === f.original && !("redraw" in patch)) next.redraw = false;
-    const geometryChanged = ["x", "y", "w", "h"].some((key) => key in patch);
-    if (geometryChanged) {
-      const finite = { x: Number.isFinite(next.x) ? next.x : f.x, y: Number.isFinite(next.y) ? next.y : f.y, w: Number.isFinite(next.w) ? next.w : f.w, h: Number.isFinite(next.h) ? next.h : f.h };
-      Object.assign(next, clampBox(finite, { w: c.width, h: c.height }));
-    }
-    if (!Number.isFinite(next.fontSize) || next.fontSize <= 0) next.fontSize = f.fontSize;
-    return next;
-  }) };
+export function patchField(
+  c: CloneSource,
+  id: string,
+  patch: Partial<CloneTextField>,
+): CloneSource {
+  return {
+    ...c,
+    fields: c.fields.map((f) => {
+      if (f.id !== id || !authorizedText(f)) return f;
+      const next = {
+        ...f,
+        ...patch,
+        id: f.id,
+        original: f.original,
+        protection: f.protection ?? "text",
+      };
+      const visualChanged = [
+        "x",
+        "y",
+        "w",
+        "h",
+        "rotation",
+        "font",
+        "fontSize",
+        "color",
+        "bold",
+        "italic",
+        "align",
+        "weight",
+        "fontWeight",
+        "letterSpacing",
+        "lineHeight",
+        "opacity",
+        "textEffects",
+      ].some((key) => key in patch);
+      if (visualChanged) {
+        next.redraw = true;
+        if (f.original && !f.sourceBox) next.sourceBox = { x: f.x, y: f.y, w: f.w, h: f.h };
+      }
+      if (patch.bold !== undefined && patch.fontWeight === undefined)
+        next.fontWeight = patch.bold ? 700 : 400;
+      if (
+        ["font", "fontSize", "color", "bold", "italic", "align", "weight"].some(
+          (key) => key in patch,
+        )
+      )
+        next.redraw = true;
+      if (patch.replacement === f.original && !("redraw" in patch)) next.redraw = false;
+      const geometryChanged = ["x", "y", "w", "h"].some((key) => key in patch);
+      if (geometryChanged) {
+        const finite = {
+          x: Number.isFinite(next.x) ? next.x : f.x,
+          y: Number.isFinite(next.y) ? next.y : f.y,
+          w: Number.isFinite(next.w) ? next.w : f.w,
+          h: Number.isFinite(next.h) ? next.h : f.h,
+        };
+        Object.assign(next, clampBox(finite, { w: c.width, h: c.height }));
+      }
+      if (!Number.isFinite(next.fontSize) || next.fontSize <= 0) next.fontSize = f.fontSize;
+      return next;
+    }),
+  };
 }
 
 /** Remove a field. A detected field goes back to the "other text" list so it can be restored. */
 export function removeField(c: CloneSource, id: string): CloneSource {
   const f = c.fields.find((x) => x.id === id);
-  if (!f) return c;
-  const back = f.original ? [...c.suggestions, { ...f, replacement: f.original, redraw: false }].sort(byPosition) : c.suggestions;
+  if (!f || !authorizedText(f)) return c;
+  const back = f.original
+    ? [...c.suggestions, { ...f, replacement: f.original, redraw: false }].sort(byPosition)
+    : c.suggestions;
   return { ...c, fields: c.fields.filter((x) => x.id !== id), suggestions: back };
 }
 
 export function promoteSuggestion(c: CloneSource, id: string): CloneSource {
   const s = c.suggestions.find((x) => x.id === id);
-  if (!s) return c;
-  return { ...c, suggestions: c.suggestions.filter((x) => x.id !== id), fields: [...c.fields, s].sort(byPosition) };
+  if (!s || !authorizedText(s)) return c;
+  return {
+    ...c,
+    suggestions: c.suggestions.filter((x) => x.id !== id),
+    fields: [...c.fields, s].sort(byPosition),
+  };
 }
 
 /** A new text box in the middle of the page, for a spot the detector missed (e.g. a blank line on a template). */
@@ -383,7 +634,21 @@ export function autoMapFields(c: CloneSource): CloneSource {
     ...c,
     fields: c.fields.map((f) => {
       const v = KIND_VARIABLE[f.kind];
-      return v && f.replacement === f.original ? { ...f, replacement: `{{${v}}}` } : f;
+      return authorizedText(f) && v && f.replacement === f.original
+        ? { ...f, replacement: `{{${v}}}` }
+        : f;
     }),
+  };
+}
+
+/** Manual inspector unlock only; protected non-text assets cannot be unlocked. */
+export function setLayerLock(c: CloneSource, id: string, locked: boolean): CloneSource {
+  return {
+    ...c,
+    fields: c.fields.map((f) =>
+      f.id === id && (!f.protection || f.protection === "text") && !f.deleted
+        ? { ...f, locked }
+        : f,
+    ),
   };
 }

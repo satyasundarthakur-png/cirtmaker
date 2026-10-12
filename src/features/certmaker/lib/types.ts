@@ -41,6 +41,27 @@ export interface CloneTextField {
   replacement: string;
   /** Repaint unchanged wording after an explicit style edit. */
   redraw?: boolean;
+  locked?: boolean;
+  protection?: "text" | "signature" | "logo" | "security" | "artwork";
+  deleted?: boolean;
+  rotation?: number;
+  fontWeight?: number;
+  letterSpacing?: number;
+  lineHeight?: number;
+  multiline?: boolean;
+  /** Native template baseline offset; retains baseline when changing wording. */
+  baselineOffset?: number;
+  opacity?: number;
+  textEffects?: {
+    strokeColor: string;
+    strokeWidth: number;
+    shadowColor: string;
+    shadowBlur: number;
+    shadowX: number;
+    shadowY: number;
+  };
+  /** Immutable location of original ink; moving a replacement must erase here. */
+  sourceBox?: { x: number; y: number; w: number; h: number };
   x: number;
   y: number;
   w: number;
@@ -76,6 +97,8 @@ export interface CloneSource {
 export interface CertData {
   cloneMode: boolean;
   clone: CloneSource | null;
+  /** Native-template editable overlays, in 1000-unit page coordinates. */
+  textLayers?: CloneTextField[];
   template: string;
   accent: string;
   paper: Paper;

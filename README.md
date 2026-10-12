@@ -24,3 +24,7 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+## Selection-aware AI editing
+
+Text selections, bulk edits, reviewed old/new previews, ranked style matches, protected layers and unlimited session undo/redo are implemented in `src/features/certmaker/lib/editing`. See [migration and usage](docs/AI_EDITING_MIGRATION.md) and [file-by-file implementation](docs/AI_EDITING_IMPLEMENTATION.md).

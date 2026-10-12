@@ -1,18 +1,58 @@
 import { describe, expect, it, vi } from "vitest";
-import { addManualField, autoMapFields, cloneField, fontCss, isActive, paintCloneFields, patchField, promoteSuggestion, removeField } from "@/features/certmaker/lib/clone";
+import {
+  addManualField,
+  autoMapFields,
+  cloneField,
+  fontCss,
+  isActive,
+  paintCloneFields,
+  patchField,
+  promoteSuggestion,
+  removeField,
+} from "@/features/certmaker/lib/clone";
 import { exportWidth, pageSize } from "@/features/certmaker/lib/exporter";
-import { DEFAULT_DATA, type CloneSource, type CloneTextField } from "@/features/certmaker/lib/types";
+import {
+  DEFAULT_DATA,
+  type CloneSource,
+  type CloneTextField,
+} from "@/features/certmaker/lib/types";
 import { certForRow, missingVariables } from "@/features/certmaker/lib/merge";
 import { certHeight } from "@/features/certmaker/lib/render";
 
-const field = (over: Partial<CloneTextField> = {}): CloneTextField => ({ ...cloneField("Original recipient", 40, 80, 200, 30, 0), ...over });
-const source = (over: Partial<CloneSource> = {}): CloneSource => ({ image: "original", filename: "certificate.png", width: 1000, height: 600, kind: "image", fields: [field()], suggestions: [], ...over });
+const field = (over: Partial<CloneTextField> = {}): CloneTextField => ({
+  ...cloneField("Original recipient", 40, 80, 200, 30, 0),
+  ...over,
+});
+const source = (over: Partial<CloneSource> = {}): CloneSource => ({
+  image: "original",
+  filename: "certificate.png",
+  width: 1000,
+  height: 600,
+  kind: "image",
+  fields: [field()],
+  suggestions: [],
+  ...over,
+});
 const data = (clone: CloneSource = source()) => ({ ...DEFAULT_DATA, cloneMode: true, clone });
 
 function context() {
-  return { save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), rect: vi.fn(), clip: vi.fn(), fillRect: vi.fn(), fillText: vi.fn(), measureText: vi.fn(() => ({ width: 100 })), font: "", fillStyle: "", textAlign: "", textBaseline: "" };
+  return {
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
+    fillRect: vi.fn(),
+    fillText: vi.fn(),
+    measureText: vi.fn(() => ({ width: 100 })),
+    font: "",
+    fillStyle: "",
+    textAlign: "",
+    textBaseline: "",
+  };
 }
-const paint = (ctx: ReturnType<typeof context>, fields: CloneTextField[]) => paintCloneFields(ctx as unknown as CanvasRenderingContext2D, fields);
+const paint = (ctx: ReturnType<typeof context>, fields: CloneTextField[]) =>
+  paintCloneFields(ctx as unknown as CanvasRenderingContext2D, fields);
 
 describe("painting", () => {
   it("leaves every original pixel untouched when text is unchanged", () => {
@@ -28,8 +68,12 @@ describe("painting", () => {
     expect(ctx.rect).toHaveBeenCalledWith(40, 80, 200, 30);
     expect(ctx.clip).toHaveBeenCalledTimes(2);
     expect(ctx.fillRect).toHaveBeenCalledWith(40, 80, 200, 30);
-    expect(ctx.fillText).toHaveBeenCalledWith("New recipient", expect.any(Number), expect.any(Number));
-    expect(ctx.restore).toHaveBeenCalledOnce();
+    expect(ctx.fillText).toHaveBeenCalledWith(
+      "New recipient",
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(ctx.restore.mock.calls.length).toBe(ctx.save.mock.calls.length);
   });
   it("paints no cover at all when the cover is off", () => {
     const ctx = context();
@@ -54,7 +98,9 @@ describe("painting", () => {
     expect(ctx.font).not.toContain("24px");
   });
   it("builds a font string with weight, style and quoted families", () => {
-    expect(fontCss({ font: "Playfair Display", bold: true, italic: true }, 20)).toBe('italic 700 20px "Playfair Display", serif');
+    expect(fontCss({ font: "Playfair Display", bold: true, italic: true }, 20)).toBe(
+      'italic 700 20px "Playfair Display", serif',
+    );
     expect(fontCss({ font: "serif", bold: false, italic: false }, 12)).toBe("400 12px serif");
   });
   it("clips user text even when erasure is disabled", () => {
@@ -90,7 +136,16 @@ describe("original artwork and export size", () => {
 
 describe("editing operations", () => {
   const base = source({
-    fields: [field({ id: "clone-0", kind: "name", original: "Candidate Name", replacement: "Candidate Name" }), field({ id: "clone-1", kind: "date", original: "12/03/2026", replacement: "12/03/2026" }), field({ id: "clone-2", kind: "custom", original: "Keep", replacement: "Changed" })],
+    fields: [
+      field({
+        id: "clone-0",
+        kind: "name",
+        original: "Candidate Name",
+        replacement: "Candidate Name",
+      }),
+      field({ id: "clone-1", kind: "date", original: "12/03/2026", replacement: "12/03/2026" }),
+      field({ id: "clone-2", kind: "custom", original: "Keep", replacement: "Changed" }),
+    ],
     suggestions: [field({ id: "clone-3", y: 500, original: "Director", replacement: "Director" })],
   });
 
@@ -106,7 +161,12 @@ describe("editing operations", () => {
   });
   it("clamps numeric edits to the source page and rejects invalid font sizes", () => {
     const next = patchField(base, "clone-0", { x: 9999, y: -9, w: 2000, fontSize: Number.NaN });
-    expect(next.fields[0]).toMatchObject({ x: 0, y: 0, w: 1000, fontSize: base.fields[0]?.fontSize });
+    expect(next.fields[0]).toMatchObject({
+      x: 0,
+      y: 0,
+      w: 1000,
+      fontSize: base.fields[0]?.fontSize,
+    });
   });
   it("sends a removed detected field back to 'other text' and drops a manual one", () => {
     const removed = removeField(base, "clone-0");
@@ -144,13 +204,26 @@ describe("bulk generation", () => {
     expect(missingVariables(d, { headers: ["name"], rows: [] })).toEqual(["course"]);
   });
   it("fills certificate numbers that count up per row", () => {
-    const d = { ...data(source({ fields: [field({ replacement: "{{certificate_id}}" })] })), certId: "CERT-2026-001" };
+    const d = {
+      ...data(source({ fields: [field({ replacement: "{{certificate_id}}" })] })),
+      certId: "CERT-2026-001",
+    };
     const ids = [0, 1, 2].map((i) => certForRow(d, { name: "A" }, i).clone?.fields[0]?.replacement);
     expect(ids).toEqual(["CERT-2026-001", "CERT-2026-002", "CERT-2026-003"]);
   });
   it("fills custom fields and blank cells without mutating the template", () => {
-    const d = data(source({ fields: [field({ replacement: "{{ Name }} / {{Registration Number}} / {{College}} / {{place}}" })] }));
-    const merged = certForRow(d, { name: "Asha", registration_number: "REG-01", college: "College A", place: "" }, 0);
+    const d = data(
+      source({
+        fields: [
+          field({ replacement: "{{ Name }} / {{Registration Number}} / {{College}} / {{place}}" }),
+        ],
+      }),
+    );
+    const merged = certForRow(
+      d,
+      { name: "Asha", registration_number: "REG-01", college: "College A", place: "" },
+      0,
+    );
     expect(merged.clone?.fields[0]?.replacement).toBe("Asha / REG-01 / College A / ");
     expect(d.clone?.fields[0]?.replacement).toContain("{{place}}");
   });

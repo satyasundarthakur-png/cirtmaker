@@ -467,13 +467,24 @@ export function itemsToFields(
 
 /** Replace the detected boxes with the AI's. Boxes the user added by hand are kept. */
 export function applyAiDetection(clone: CloneSource, items: AiItem[]): CloneSource {
-  const manual = clone.fields.filter((f) => !f.original);
+  const manual = clone.fields.filter(
+    (f) => !f.original || f.locked || (f.protection && f.protection !== "text"),
+  );
   const { fields, suggestions } = itemsToFields(
     items,
     { w: clone.width, h: clone.height },
     nextIndex(clone),
   );
-  return { ...clone, fields: [...fields, ...manual].sort(byPosition), suggestions };
+  const overlap = (a: CloneTextField, b: CloneTextField) =>
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  const reserved = manual.filter((f) => f.locked || (f.protection && f.protection !== "text"));
+  return {
+    ...clone,
+    fields: [...fields.filter((f) => !reserved.some((r) => overlap(f, r))), ...manual].sort(
+      byPosition,
+    ),
+    suggestions: suggestions.filter((f) => !reserved.some((r) => overlap(f, r))),
+  };
 }
 
 /* ---------- one call ---------- */

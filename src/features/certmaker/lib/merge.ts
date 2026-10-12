@@ -16,7 +16,16 @@ export interface Dataset {
 }
 
 /** Variables every certificate understands, whether or not they appear in the CSV. */
-export const BUILT_IN_VARS = ["name", "course", "date", "score", "grade", "organization", "certificate_id", "address"] as const;
+export const BUILT_IN_VARS = [
+  "name",
+  "course",
+  "date",
+  "score",
+  "grade",
+  "organization",
+  "certificate_id",
+  "address",
+] as const;
 
 const ALIASES: Record<string, string> = {
   recipient: "name",
@@ -112,7 +121,10 @@ export function parseDataset(text: string): Dataset {
   const multi = first.length > 1;
   const hasNameHeader = first.includes("name");
   if (!multi && !hasNameHeader) {
-    return { headers: ["name"], rows: table.map((r) => ({ name: (r[0] ?? "").trim() })).filter((r) => r.name) };
+    return {
+      headers: ["name"],
+      rows: table.map((r) => ({ name: (r[0] ?? "").trim() })).filter((r) => r.name),
+    };
   }
   // blank headers get a placeholder; repeated headers get _2, _3 so no column silently overwrites another
   const seen = new Map<string, number>();
@@ -150,7 +162,16 @@ export function fill(text: string, row: Row): string {
 }
 
 /** Which template fields can contain variables. */
-const TEXT_FIELDS = ["org", "title", "subtitle", "recipient", "body", "date", "certId", "sealText"] as const;
+const TEXT_FIELDS = [
+  "org",
+  "title",
+  "subtitle",
+  "recipient",
+  "body",
+  "date",
+  "certId",
+  "sealText",
+] as const;
 
 export function templateText(d: CertData): string {
   if (d.cloneMode && d.clone) return d.clone.fields.map((f) => f.replacement).join("\n");
@@ -160,7 +181,12 @@ export function templateText(d: CertData): string {
 /** Variables used by the template that the dataset can't supply. */
 export function missingVariables(d: CertData, ds: Dataset): string[] {
   const have = new Set(ds.headers);
-  const builtin = new Set<string>(["certificate_id", ...(d.org ? ["organization"] : []), ...(d.date ? ["date"] : []), ...(d.address ? ["address"] : [])]);
+  const builtin = new Set<string>([
+    "certificate_id",
+    ...(d.org ? ["organization"] : []),
+    ...(d.date ? ["date"] : []),
+    ...(d.address ? ["address"] : []),
+  ]);
   return [...new Set(variablesIn(templateText(d)))].filter((v) => !have.has(v) && !builtin.has(v));
 }
 
@@ -171,7 +197,13 @@ export function certForRow(base: CertData, row: Row, index: number): CertData {
   const vars: Row = { ...defaults, certificate_id: certId };
   if (row.name) vars.name = row.name;
   const out: CertData = { ...base, certId };
-  if (base.cloneMode && base.clone) out.clone = { ...base.clone, fields: base.clone.fields.map((f) => ({ ...f, replacement: fill(f.replacement, vars) })) };
+  if (base.textLayers)
+    out.textLayers = base.textLayers.map((f) => ({ ...f, replacement: fill(f.replacement, vars) }));
+  if (base.cloneMode && base.clone)
+    out.clone = {
+      ...base.clone,
+      fields: base.clone.fields.map((f) => ({ ...f, replacement: fill(f.replacement, vars) })),
+    };
   for (const k of TEXT_FIELDS) out[k] = fill(base[k], vars) as never;
   out.certId = certId;
   out.sigs = base.sigs.map((s) => ({ name: fill(s.name, vars), role: fill(s.role, vars) }));

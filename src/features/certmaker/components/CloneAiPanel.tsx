@@ -15,11 +15,14 @@ import {
   saveKey,
   type AiProvider,
 } from "../lib/clone-ai";
-import type { CloneSource } from "../lib/types";
+import type { CertData, CloneSource } from "../lib/types";
 
 interface Props {
   clone: CloneSource;
   selected: string | null;
+  selectedIds?: string[] | undefined;
+  previewData?: CertData | undefined;
+  detectionEnabled?: boolean;
   variables: string[];
   /** CSV column names only. Row data is never sent. */
   headers: string[];
@@ -33,6 +36,9 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export default function CloneAiPanel({
   clone,
   selected,
+  selectedIds,
+  previewData,
+  detectionEnabled = true,
   variables,
   headers,
   edit,
@@ -229,7 +235,7 @@ export default function CloneAiPanel({
               size="certificate"
               type="button"
               className="btn btn-primary"
-              disabled={busy || !key.trim() || !consent || !model}
+              disabled={!detectionEnabled || busy || !key.trim() || !consent || !model}
               onClick={run}
             >
               {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}{" "}
@@ -263,6 +269,8 @@ export default function CloneAiPanel({
       <CloneAiEditor
         clone={clone}
         selected={selected}
+        selectedIds={selectedIds}
+        {...(previewData ? { previewData } : {})}
         variables={variables}
         provider={provider}
         apiKey={key}

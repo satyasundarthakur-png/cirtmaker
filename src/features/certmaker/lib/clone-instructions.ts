@@ -1,3 +1,4 @@
+import { authorizedText } from "./editing/SelectionManager";
 import { patchField, removeField, nextIndex } from "./clone";
 import type { CloneSource, CloneTextField } from "./types";
 
@@ -20,6 +21,7 @@ export function planFieldInstruction(
   variables: string[],
 ): FieldInstruction {
   const field = clone.fields.find((f) => f.id === id);
+  if (field && !authorizedText(field)) throw new Error("Selected layer is locked or protected.");
   if (!field) throw new Error("Select a text box first.");
   const text = instruction.trim();
   if (!text || text.length > 4000) throw new Error("Enter an instruction of 1–4000 characters.");
