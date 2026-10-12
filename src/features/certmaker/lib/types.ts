@@ -39,6 +39,8 @@ export interface CloneTextField {
   label: string;
   original: string;
   replacement: string;
+  /** Repaint unchanged wording after an explicit style edit. */
+  redraw?: boolean;
   x: number;
   y: number;
   w: number;

@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { cloneField } from "@/features/certmaker/lib/clone";
-import { applyFieldInstruction, instructionIsCurrent, planFieldInstruction } from "@/features/certmaker/lib/clone-instructions";
+import {
+  applyFieldInstruction,
+  instructionIsCurrent,
+  planFieldInstruction,
+} from "@/features/certmaker/lib/clone-instructions";
 import type { CloneSource } from "@/features/certmaker/lib/types";
 
-const source = (): CloneSource => ({ image: "template", width: 1000, height: 600, filename: "template.png", kind: "image", fields: [{ ...cloneField("", 100, 100, 200, 40, 0), replacement: "User text", erase: "none" }], suggestions: [] });
-const plan = (c: CloneSource, text: string) => planFieldInstruction(c, "clone-0", text, ["name", "College", "date"]);
+const source = (): CloneSource => ({
+  image: "template",
+  width: 1000,
+  height: 600,
+  filename: "template.png",
+  kind: "image",
+  fields: [{ ...cloneField("", 100, 100, 200, 40, 0), replacement: "User text", erase: "none" }],
+  suggestions: [],
+});
+const plan = (c: CloneSource, text: string) =>
+  planFieldInstruction(c, "clone-0", text, ["name", "College", "date"]);
 
 describe("device-only field instructions", () => {
   it("reviews before applying exact text and preserves template pixels and unknown tokens", () => {
@@ -31,11 +44,11 @@ describe("device-only field instructions", () => {
     expect(plan(source(), "font size 24").patch).toEqual({ fontSize: 24 });
     expect(() => plan(source(), "font size 0")).toThrow();
   });
-  it("clears user-added content but cannot erase original template text", () => {
+  it("erases selected original text with smart erase", () => {
     expect(plan(source(), "erase selected text").patch.replacement).toBe("");
     const c = source();
     c.fields[0] = { ...cloneField("Original", 100, 100, 200, 40, 0), replacement: "Edited" };
-    expect(() => plan(c, "erase text")).toThrow("user-added");
+    expect(plan(c, "erase text").patch).toMatchObject({ replacement: "", erase: "smart" });
     expect(plan(c, "restore original").patch.replacement).toBe("Original");
     const removed = applyFieldInstruction(c, plan(c, "remove box"));
     expect(removed.fields).toHaveLength(0);
@@ -50,6 +63,46 @@ describe("device-only field instructions", () => {
     expect(applyFieldInstruction({ ...c, image: "different" }, p).image).toBe("different");
   });
   it("refuses unsupported instructions instead of guessing", () => {
-    expect(() => plan(source(), "recreate handwriting and erase artwork")).toThrow("not recognised");
+    expect(() => plan(source(), "recreate handwriting and erase artwork")).toThrow(
+      "not recognised",
+    );
+  });
+});
+describe("editing actions", () => {
+  it("duplicates with a unique ID without erasing artwork", () => {
+    const c = source();
+    const p = plan(c, "duplicate");
+    const next = applyFieldInstruction(c, p);
+    expect(next.fields).toHaveLength(2);
+    expect(next.fields[1]).toMatchObject({
+      id: "clone-1",
+      original: "",
+      replacement: "User text",
+      erase: "none",
+    });
+  });
+  it("beautifies unchanged original wording and restores original pixels", () => {
+    const c = source();
+    c.fields[0] = cloneField("Original", 100, 100, 200, 40, 0);
+    const next = applyFieldInstruction(c, plan(c, "beautify"));
+    expect(next.fields[0]).toMatchObject({
+      redraw: true,
+      erase: "smart",
+      font: "Playfair Display",
+    });
+    expect(applyFieldInstruction(next, plan(next, "restore original")).fields[0]?.redraw).toBe(
+      false,
+    );
+  });
+  it("matches style and invalidates review when the target changes", () => {
+    const c = source();
+    c.fields.push({ ...cloneField("Title", 400, 100, 200, 40, 1), color: "#123456" });
+    const p = plan(c, "match style clone-1");
+    expect(p.patch.color).toBe("#123456");
+    c.fields[1]!.color = "#ffffff";
+    expect(instructionIsCurrent(c, p)).toBe(false);
+  });
+  it("writes literal text without running code", () => {
+    expect(plan(source(), 'write "Workshop"').patch.replacement).toBe("Workshop");
   });
 });

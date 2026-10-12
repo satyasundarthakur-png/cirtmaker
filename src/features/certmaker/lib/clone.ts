@@ -43,7 +43,7 @@ export function cloneField(text: string, x: number, y: number, w: number, h: num
 }
 
 /** A field is only painted once its text differs from the original. Untouched fields leave the artwork alone. */
-export const isActive = (f: CloneTextField) => f.replacement !== f.original;
+export const isActive = (f: CloneTextField) => f.replacement !== f.original || f.redraw === true;
 
 const GENERIC = new Set(["serif", "sans-serif", "cursive", "monospace"]);
 
@@ -333,6 +333,8 @@ export function patchField(c: CloneSource, id: string, patch: Partial<CloneTextF
   return { ...c, fields: c.fields.map((f) => {
     if (f.id !== id) return f;
     const next = { ...f, ...patch };
+    if (["font", "fontSize", "color", "bold", "italic", "align", "weight"].some((key) => key in patch)) next.redraw = true;
+    if (patch.replacement === f.original && !("redraw" in patch)) next.redraw = false;
     const geometryChanged = ["x", "y", "w", "h"].some((key) => key in patch);
     if (geometryChanged) {
       const finite = { x: Number.isFinite(next.x) ? next.x : f.x, y: Number.isFinite(next.y) ? next.y : f.y, w: Number.isFinite(next.w) ? next.w : f.w, h: Number.isFinite(next.h) ? next.h : f.h };
@@ -347,7 +349,7 @@ export function patchField(c: CloneSource, id: string, patch: Partial<CloneTextF
 export function removeField(c: CloneSource, id: string): CloneSource {
   const f = c.fields.find((x) => x.id === id);
   if (!f) return c;
-  const back = f.original ? [...c.suggestions, { ...f, replacement: f.original }].sort(byPosition) : c.suggestions;
+  const back = f.original ? [...c.suggestions, { ...f, replacement: f.original, redraw: false }].sort(byPosition) : c.suggestions;
   return { ...c, fields: c.fields.filter((x) => x.id !== id), suggestions: back };
 }
 
