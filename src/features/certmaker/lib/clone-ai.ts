@@ -1,14 +1,15 @@
 /**
- * Optional AI text-field detection for Clone Mode. Two providers: Google Gemini and Groq.
+ * AI detection and consented text-only instruction transport for Clone Mode. Two providers: Google Gemini and Groq.
  *
- * What it does: reads the certificate template image and returns the text on it, with a box around each piece,
+ * Detection reads the certificate template image and returns the text on it, with a box around each piece,
  * a kind (name / number / date / course / custom / other), basic font hints, and, when the user has a CSV,
  * which column would fill each field.
  *
  * What it never does: generate, edit, restyle or redraw artwork, or pick colours. The original stays untouched.
  *
- * Privacy: bring-your-own-key, called straight from the browser. Only the template image and CSV column NAMES
- * are sent. Row data (recipients' names) never is. The key goes in a header only, never in a URL or an error message.
+ * Detection sends only the template image and CSV column names. Instruction transport below sends
+ * instruction text and editable field context after separate consent in CloneAiEditor. Neither sends CSV rows.
+ * Privacy: bring-your-own-key, called straight from the browser. The key goes in a header only, never in a URL or an error message.
  */
 import { KIND_LABEL, type Detected } from "./clone-detect";
 import { fieldFromDetected, loadCloneImage, nextIndex } from "./clone";
@@ -56,12 +57,18 @@ export const PROVIDERS: Record<AiProvider, ProviderInfo> = {
   },
 };
 
-export const DEFAULT_MODEL: Record<AiProvider, string> = { gemini: "gemini-3.6-flash", groq: "qwen/qwen3.8-27b" };
+export const DEFAULT_MODEL: Record<AiProvider, string> = {
+  gemini: "gemini-3.6-flash",
+  groq: "qwen/qwen3.8-27b",
+};
 
 /** Other models to try, in order, when the chosen one stays overloaded. */
 export function fallbackModels(provider: AiProvider, model: string): string[] {
   // for Gemini the lightest model goes first: it is the least likely to be overloaded
-  const order = provider === "gemini" ? ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"] : PROVIDERS[provider].models.map((m) => m.id);
+  const order =
+    provider === "gemini"
+      ? ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]
+      : PROVIDERS[provider].models.map((m) => m.id);
   return order.filter((id) => id !== model);
 }
 
@@ -81,7 +88,17 @@ const TRANSIENT_STATUS = new Set([500, 502, 503, 504]);
 /** Coordinates above this can only be pixels, not the 0–1000 scale we asked for. */
 const PIXEL_THRESHOLD = 1100;
 
-export type AiErrorCode = "key" | "quota" | "busy" | "model" | "network" | "blocked" | "format" | "timeout" | "cancelled" | "other";
+export type AiErrorCode =
+  | "key"
+  | "quota"
+  | "busy"
+  | "model"
+  | "network"
+  | "blocked"
+  | "format"
+  | "timeout"
+  | "cancelled"
+  | "other";
 
 export class AiError extends Error {
   constructor(
@@ -137,7 +154,11 @@ export function saveKey(key: string, provider: AiProvider = "gemini") {
 
 /* ---------- request ---------- */
 
-const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "");
+const norm = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "_")
+    .replace(/^_+|_+$/g, "");
 
 export function buildPrompt(headers: string[], dims?: { width: number; height: number }): string {
   const columns = headers.length
@@ -161,15 +182,31 @@ export function buildPrompt(headers: string[], dims?: { width: number; height: n
   );
 }
 
-export function buildRequest(imageBase64: string, headers: string[], dims?: { width: number; height: number }) {
+export function buildRequest(
+  imageBase64: string,
+  headers: string[],
+  dims?: { width: number; height: number },
+) {
   return {
-    contents: [{ parts: [{ text: buildPrompt(headers, dims) }, { inline_data: { mime_type: "image/jpeg", data: imageBase64 } }] }],
+    contents: [
+      {
+        parts: [
+          { text: buildPrompt(headers, dims) },
+          { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
+        ],
+      },
+    ],
     // temperature and other sampling settings are deprecated on current Gemini models, so none are sent
     generationConfig: { responseMimeType: "application/json" },
   };
 }
 
-export function buildGroqRequest(model: string, imageBase64: string, headers: string[], dims?: { width: number; height: number }) {
+export function buildGroqRequest(
+  model: string,
+  imageBase64: string,
+  headers: string[],
+  dims?: { width: number; height: number },
+) {
   return {
     model,
     messages: [
@@ -199,26 +236,37 @@ export async function prepareImage(src: string): Promise<PreparedImage> {
   ctx.fillRect(0, 0, c.width, c.height);
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(img, 0, 0, c.width, c.height);
-  return { base64: c.toDataURL("image/jpeg", 0.92).split(",")[1] ?? "", width: c.width, height: c.height };
+  return {
+    base64: c.toDataURL("image/jpeg", 0.92).split(",")[1] ?? "",
+    width: c.width,
+    height: c.height,
+  };
 }
 
 /* ---------- response ---------- */
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 
-const BLOCKED = "The AI service declined to read this image. Try a different file, or use the built-in detection.";
+const BLOCKED =
+  "The AI service declined to read this image. Try a different file, or use the built-in detection.";
 
 function geminiText(json: unknown): string {
   if (!isObj(json)) throw new AiError("format", "The AI sent back something unreadable.");
   const feedback = json["promptFeedback"];
-  if (isObj(feedback) && typeof feedback["blockReason"] === "string") throw new AiError("blocked", BLOCKED);
+  if (isObj(feedback) && typeof feedback["blockReason"] === "string")
+    throw new AiError("blocked", BLOCKED);
   const candidates = json["candidates"];
   const first = Array.isArray(candidates) ? candidates[0] : undefined;
   if (!isObj(first)) throw new AiError("format", "The AI returned no answer. Try again.");
-  if (first["finishReason"] === "SAFETY" || first["finishReason"] === "PROHIBITED_CONTENT") throw new AiError("blocked", BLOCKED);
+  if (first["finishReason"] === "SAFETY" || first["finishReason"] === "PROHIBITED_CONTENT")
+    throw new AiError("blocked", BLOCKED);
   const content = first["content"];
   const parts = isObj(content) && Array.isArray(content["parts"]) ? content["parts"] : [];
-  const text = parts.map((p) => (isObj(p) && typeof p["text"] === "string" ? p["text"] : "")).join("").trim();
+  const text = parts
+    .map((p) => (isObj(p) && typeof p["text"] === "string" ? p["text"] : ""))
+    .join("")
+    .trim();
   if (!text) throw new AiError("format", "The AI returned no answer. Try again.");
   return text;
 }
@@ -231,23 +279,48 @@ function groqText(json: unknown): string {
   if (first["finish_reason"] === "content_filter") throw new AiError("blocked", BLOCKED);
   const message = first["message"];
   const content = isObj(message) ? message["content"] : undefined;
-  const raw = typeof content === "string" ? content : Array.isArray(content) ? content.map((p) => (isObj(p) && typeof p["text"] === "string" ? p["text"] : "")).join("") : "";
+  const raw =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.map((p) => (isObj(p) && typeof p["text"] === "string" ? p["text"] : "")).join("")
+        : "";
   // some reasoning models put their thinking inline; it is not part of the answer
   const text = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   if (!text) {
-    if (first["finish_reason"] === "length") throw new AiError("format", "The AI ran out of room before it finished answering. Try again.");
+    if (first["finish_reason"] === "length")
+      throw new AiError(
+        "format",
+        "The AI ran out of room before it finished answering. Try again.",
+      );
     throw new AiError("format", "The AI returned no answer. Try again.");
   }
   return text;
 }
 
 const KIND_ALIASES: Record<string, CloneKind | "other"> = {
-  name: "name", candidate: "name", recipient: "name", person: "name",
-  certid: "certId", certificate_id: "certId", certificate_number: "certId", certificate_no: "certId", serial: "certId", id: "certId", number: "certId",
-  date: "date", issue_date: "date",
-  course: "course", event: "course", programme: "course", program: "course", workshop: "course",
-  custom: "custom", variable: "custom",
-  other: "other", static: "other",
+  name: "name",
+  candidate: "name",
+  recipient: "name",
+  person: "name",
+  certid: "certId",
+  certificate_id: "certId",
+  certificate_number: "certId",
+  certificate_no: "certId",
+  serial: "certId",
+  id: "certId",
+  number: "certId",
+  date: "date",
+  issue_date: "date",
+  course: "course",
+  event: "course",
+  programme: "course",
+  program: "course",
+  workshop: "course",
+  custom: "custom",
+  variable: "custom",
+  other: "other",
+  static: "other",
 };
 
 const num = (v: unknown) => (typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN);
@@ -264,16 +337,33 @@ function toItem(raw: unknown, headers: string[]): AiItem | null {
   if (![y0, x0, y1, x1].every(Number.isFinite) || y1 <= y0 || x1 <= x0) return null;
   const kind = KIND_ALIASES[typeof raw["kind"] === "string" ? norm(raw["kind"]) : ""] ?? "other";
   const fontRaw = typeof raw["font"] === "string" ? raw["font"].toLowerCase() : "";
-  const font = fontRaw.includes("script") ? "script" : fontRaw.includes("serif") && !fontRaw.includes("sans") ? "serif" : "sans";
+  const font = fontRaw.includes("script")
+    ? "script"
+    : fontRaw.includes("serif") && !fontRaw.includes("sans")
+      ? "serif"
+      : "sans";
   const alignRaw = typeof raw["align"] === "string" ? raw["align"].toLowerCase() : "";
-  const align = alignRaw === "left" || alignRaw === "center" || alignRaw === "right" ? alignRaw : null;
+  const align =
+    alignRaw === "left" || alignRaw === "center" || alignRaw === "right" ? alignRaw : null;
   const colRaw = typeof raw["column"] === "string" ? norm(raw["column"]) : "";
   const column = colRaw ? (headers.find((h) => norm(h) === colRaw) ?? "") : "";
-  return { text, kind, box: { x0, y0, x1, y1 }, font, bold: raw["bold"] === true, italic: raw["italic"] === true, align, column };
+  return {
+    text,
+    kind,
+    box: { x0, y0, x1, y1 },
+    font,
+    bold: raw["bold"] === true,
+    italic: raw["italic"] === true,
+    align,
+    column,
+  };
 }
 
 function extractJson(text: string): unknown {
-  const bare = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  const bare = text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
   try {
     return JSON.parse(bare);
   } catch {
@@ -291,7 +381,11 @@ export interface ParseOptions {
 }
 
 /** Strictly validate the model's answer. Anything malformed is dropped, never trusted. */
-export function parseAiResponse(json: unknown, headers: string[] = [], opts: ParseOptions = {}): { items: AiItem[]; dropped: number } {
+export function parseAiResponse(
+  json: unknown,
+  headers: string[] = [],
+  opts: ParseOptions = {},
+): { items: AiItem[]; dropped: number } {
   const text = opts.provider === "groq" ? groqText(json) : geminiText(json);
   let data: unknown;
   try {
@@ -299,9 +393,17 @@ export function parseAiResponse(json: unknown, headers: string[] = [], opts: Par
   } catch {
     throw new AiError("format", "The AI answered in a format that could not be read. Try again.");
   }
-  const list = Array.isArray(data) ? data : isObj(data) && Array.isArray(data["items"]) ? data["items"] : null;
-  if (!list) throw new AiError("format", "The AI answered in a format that could not be read. Try again.");
-  const checked = list.slice(0, MAX_ITEMS).map((r) => toItem(r, headers)).filter((i): i is AiItem => i !== null);
+  const list = Array.isArray(data)
+    ? data
+    : isObj(data) && Array.isArray(data["items"])
+      ? data["items"]
+      : null;
+  if (!list)
+    throw new AiError("format", "The AI answered in a format that could not be read. Try again.");
+  const checked = list
+    .slice(0, MAX_ITEMS)
+    .map((r) => toItem(r, headers))
+    .filter((i): i is AiItem => i !== null);
 
   // If any coordinate is clearly beyond 0–1000, the model answered in pixels of the image we sent.
   const maxCoord = Math.max(0, ...checked.flatMap((i) => [i.box.x1, i.box.y1]));
@@ -310,11 +412,22 @@ export function parseAiResponse(json: unknown, headers: string[] = [], opts: Par
   for (const i of checked) {
     const sx = pixels ? 1000 / pixels.width : 1;
     const sy = pixels ? 1000 / pixels.height : 1;
-    const box = { x0: clamp1000(i.box.x0 * sx), y0: clamp1000(i.box.y0 * sy), x1: clamp1000(i.box.x1 * sx), y1: clamp1000(i.box.y1 * sy) };
+    const box = {
+      x0: clamp1000(i.box.x0 * sx),
+      y0: clamp1000(i.box.y0 * sy),
+      x1: clamp1000(i.box.x1 * sx),
+      y1: clamp1000(i.box.y1 * sy),
+    };
     if (box.x1 - box.x0 < 2 || box.y1 - box.y0 < 2) continue;
     items.push({ ...i, box });
   }
-  if (!items.length) throw new AiError("format", list.length ? "The AI's answer had no usable text boxes. Try again, or use the built-in detection." : "The AI found no text on this certificate.");
+  if (!items.length)
+    throw new AiError(
+      "format",
+      list.length
+        ? "The AI's answer had no usable text boxes. Try again, or use the built-in detection."
+        : "The AI found no text on this certificate.",
+    );
   return { items, dropped: list.length - items.length };
 }
 
@@ -322,7 +435,11 @@ export function parseAiResponse(json: unknown, headers: string[] = [], opts: Par
 
 const byPosition = (a: CloneTextField, b: CloneTextField) => a.y - b.y || a.x - b.x;
 
-export function itemsToFields(items: AiItem[], page: { w: number; h: number }, startIndex: number): { fields: CloneTextField[]; suggestions: CloneTextField[] } {
+export function itemsToFields(
+  items: AiItem[],
+  page: { w: number; h: number },
+  startIndex: number,
+): { fields: CloneTextField[]; suggestions: CloneTextField[] } {
   const fields: CloneTextField[] = [];
   const suggestions: CloneTextField[] = [];
   let n = startIndex;
@@ -351,7 +468,11 @@ export function itemsToFields(items: AiItem[], page: { w: number; h: number }, s
 /** Replace the detected boxes with the AI's. Boxes the user added by hand are kept. */
 export function applyAiDetection(clone: CloneSource, items: AiItem[]): CloneSource {
   const manual = clone.fields.filter((f) => !f.original);
-  const { fields, suggestions } = itemsToFields(items, { w: clone.width, h: clone.height }, nextIndex(clone));
+  const { fields, suggestions } = itemsToFields(
+    items,
+    { w: clone.width, h: clone.height },
+    nextIndex(clone),
+  );
   return { ...clone, fields: [...fields, ...manual].sort(byPosition), suggestions };
 }
 
@@ -375,23 +496,40 @@ async function errorFor(res: Response, apiKey: string, provider: AiProvider): Pr
   let detail = "";
   try {
     const j: unknown = await res.json();
-    if (isObj(j) && isObj(j["error"]) && typeof j["error"]["message"] === "string") detail = j["error"]["message"];
+    if (isObj(j) && isObj(j["error"]) && typeof j["error"]["message"] === "string")
+      detail = j["error"]["message"];
   } catch {
     /* no JSON body */
   }
   detail = detail.split(apiKey).join("***").slice(0, 200);
   const header = res.headers?.get?.("retry-after");
   const seconds = header ? Number(header) : NaN;
-  const retryAfterMs = Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : undefined;
+  const retryAfterMs =
+    Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : undefined;
 
   if (res.status === 401 || res.status === 403 || (res.status === 400 && /api key/i.test(detail))) {
-    return new AiError("key", `${name} did not accept that API key. Check it was copied in full${provider === "gemini" ? ", and that the Gemini API is enabled for it" : ""}.`);
+    return new AiError(
+      "key",
+      `${name} did not accept that API key. Check it was copied in full${provider === "gemini" ? ", and that the Gemini API is enabled for it" : ""}.`,
+    );
   }
-  if (res.status === 429) return new AiError("quota", `Your ${name} usage limit has been reached for now. Wait a minute and try again, or check your plan.`, retryAfterMs);
-  if (res.status === 404) return new AiError("model", "That model is not available for your key. Pick another model.");
+  if (res.status === 429)
+    return new AiError(
+      "quota",
+      `Your ${name} usage limit has been reached for now. Wait a minute and try again, or check your plan.`,
+      retryAfterMs,
+    );
+  if (res.status === 404)
+    return new AiError("model", "That model is not available for your key. Pick another model.");
   if (res.status === 413) return new AiError("other", "The image was too large to send.");
-  if (res.status === 400 && provider === "groq" && /image|vision|multimodal|content/i.test(detail)) return new AiError("model", "That model cannot read images. Choose a vision model.");
-  if (TRANSIENT_STATUS.has(res.status)) return new AiError("busy", `${name} is very busy right now. This is on ${PROVIDERS[provider].company}'s side, not your key or certificate.`, retryAfterMs);
+  if (res.status === 400 && provider === "groq" && /image|vision|multimodal|content/i.test(detail))
+    return new AiError("model", "That model cannot read images. Choose a vision model.");
+  if (TRANSIENT_STATUS.has(res.status))
+    return new AiError(
+      "busy",
+      `${name} is very busy right now. This is on ${PROVIDERS[provider].company}'s side, not your key or certificate.`,
+      retryAfterMs,
+    );
   return new AiError("other", `${name} returned an error (${res.status}). ${detail}`.trim());
 }
 
@@ -399,11 +537,16 @@ export async function detectOnce(o: DetectOptions): Promise<{ items: AiItem[]; d
   const apiKey = o.apiKey.trim();
   const info = PROVIDERS[o.provider];
   if (!apiKey) throw new AiError("key", `Enter your ${info.name} API key first.`);
-  if (!MODEL_RE.test(o.model) || o.model.includes("..")) throw new AiError("model", "That model name is not valid.");
+  if (!MODEL_RE.test(o.model) || o.model.includes(".."))
+    throw new AiError("model", "That model name is not valid.");
   const dims = { width: o.image.width, height: o.image.height };
   const request =
     o.provider === "groq"
-      ? { url: GROQ_URL, headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: buildGroqRequest(o.model, o.image.base64, o.headers, dims) }
+      ? {
+          url: GROQ_URL,
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: buildGroqRequest(o.model, o.image.base64, o.headers, dims),
+        }
       : {
           url: `${GEMINI_URL}/${encodeURIComponent(o.model)}:generateContent`,
           headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
@@ -411,18 +554,30 @@ export async function detectOnce(o: DetectOptions): Promise<{ items: AiItem[]; d
         };
   const ctrl = new AbortController();
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, TIMEOUT_MS);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, TIMEOUT_MS);
   const onAbort = () => ctrl.abort();
   o.signal?.addEventListener("abort", onAbort);
   try {
-    const res = await (o.fetchImpl ?? fetch)(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(request.body), signal: ctrl.signal });
+    const res = await (o.fetchImpl ?? fetch)(request.url, {
+      method: "POST",
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+      signal: ctrl.signal,
+    });
     if (!res.ok) throw await errorFor(res, apiKey, o.provider);
     return parseAiResponse(await res.json(), o.headers, { provider: o.provider, dims });
   } catch (e) {
     if (e instanceof AiError) throw e;
     if (timedOut) throw new AiError("timeout", `${info.name} took too long to answer.`);
-    if (e instanceof DOMException && e.name === "AbortError") throw new AiError("cancelled", "Cancelled.");
-    throw new AiError("network", `Could not reach ${info.name}. Check your connection, or whether an ad blocker or firewall is blocking it. If it keeps failing only for ${info.name}, your browser may be refusing direct calls to it: try the other provider.`);
+    if (e instanceof DOMException && e.name === "AbortError")
+      throw new AiError("cancelled", "Cancelled.");
+    throw new AiError(
+      "network",
+      `Could not reach ${info.name}. Check your connection, or whether an ad blocker or firewall is blocking it. If it keeps failing only for ${info.name}, your browser may be refusing direct calls to it: try the other provider.`,
+    );
   } finally {
     clearTimeout(timer);
     o.signal?.removeEventListener("abort", onAbort);
@@ -443,8 +598,14 @@ export interface ResilientOptions extends DetectOptions {
 function wait(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new AiError("cancelled", "Cancelled."));
-    const onAbort = () => { clearTimeout(t); reject(new AiError("cancelled", "Cancelled.")); };
-    const t = setTimeout(() => { signal?.removeEventListener("abort", onAbort); resolve(); }, ms);
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(new AiError("cancelled", "Cancelled."));
+    };
+    const t = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
@@ -453,7 +614,8 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
 function retryBudget(e: AiError): number {
   if (e.code === "busy") return RETRY_DELAYS_MS.length;
   if (e.code === "timeout") return 1;
-  if (e.code === "quota" && e.retryAfterMs !== undefined && e.retryAfterMs <= MAX_RETRY_AFTER_MS) return 1;
+  if (e.code === "quota" && e.retryAfterMs !== undefined && e.retryAfterMs <= MAX_RETRY_AFTER_MS)
+    return 1;
   return 0;
 }
 
@@ -461,10 +623,14 @@ function retryBudget(e: AiError): number {
  * detectOnce with automatic retries when the service is overloaded (HTTP 500/502/503/504), slow, or briefly
  * rate-limited, then the same on fallback models. Returns the model that actually answered.
  */
-export async function detectResilient(o: ResilientOptions): Promise<{ items: AiItem[]; dropped: number; model: string }> {
+export async function detectResilient(
+  o: ResilientOptions,
+): Promise<{ items: AiItem[]; dropped: number; model: string }> {
   const sleep = o.sleep ?? wait;
   const info = PROVIDERS[o.provider];
-  const models = [o.model, ...(o.fallbacks ?? fallbackModels(o.provider, o.model))].filter((m, i, all) => all.indexOf(m) === i);
+  const models = [o.model, ...(o.fallbacks ?? fallbackModels(o.provider, o.model))].filter(
+    (m, i, all) => all.indexOf(m) === i,
+  );
   let last: AiError | null = null;
   for (const [mi, model] of models.entries()) {
     let retries = 0;
@@ -478,9 +644,15 @@ export async function detectResilient(o: ResilientOptions): Promise<{ items: AiI
         if (budget === 0) throw e;
         last = e;
         if (retries >= budget) break;
-        const delay = e.retryAfterMs ?? RETRY_DELAYS_MS[retries] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1] ?? 4000;
+        const delay =
+          e.retryAfterMs ??
+          RETRY_DELAYS_MS[retries] ??
+          RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1] ??
+          4000;
         retries++;
-        o.onStatus?.(`${info.name} is busy. Retrying in ${Math.ceil(delay / 1000)}s (${retries} of ${budget})…`);
+        o.onStatus?.(
+          `${info.name} is busy. Retrying in ${Math.ceil(delay / 1000)}s (${retries} of ${budget})…`,
+        );
         await sleep(delay, o.signal);
       }
     }
@@ -492,4 +664,99 @@ export async function detectResilient(o: ResilientOptions): Promise<{ items: AiI
     "busy",
     `${info.name} is overloaded right now, even after retrying${models.length > 1 ? " and switching models" : ""}. This is on ${info.company}'s side and usually clears within a few minutes. Try again shortly.${last?.code === "timeout" ? " (It was also slow to answer.)" : ""}`,
   );
+}
+
+/** Text-only instruction planning. Requires separate UI consent; never sends image or CSV rows. */
+async function requestEditTextOnce(o: {
+  provider: AiProvider;
+  apiKey: string;
+  model: string;
+  prompt: string;
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}): Promise<string> {
+  const apiKey = o.apiKey.trim();
+  if (!apiKey) throw new AiError("key", "Enter your API key first.");
+  if (!MODEL_RE.test(o.model) || o.model.includes(".."))
+    throw new AiError("model", "That model name is not valid.");
+  if (o.signal?.aborted) throw new AiError("cancelled", "Cancelled.");
+  const request =
+    o.provider === "groq"
+      ? {
+          url: GROQ_URL,
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: {
+            model: o.model,
+            messages: [{ role: "user", content: o.prompt }],
+            response_format: { type: "json_object" },
+            max_completion_tokens: MAX_COMPLETION_TOKENS,
+          },
+        }
+      : {
+          url: `${GEMINI_URL}/${encodeURIComponent(o.model)}:generateContent`,
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+          body: {
+            contents: [{ parts: [{ text: o.prompt }] }],
+            generationConfig: { responseMimeType: "application/json" },
+          },
+        };
+  for (let attempt = 0; ; attempt++) {
+    const ctrl = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      ctrl.abort();
+    }, TIMEOUT_MS);
+    const cancel = () => ctrl.abort();
+    o.signal?.addEventListener("abort", cancel, { once: true });
+    if (o.signal?.aborted) ctrl.abort();
+    let retry: AiError | null = null;
+    try {
+      const res = await (o.fetchImpl ?? fetch)(request.url, {
+        method: "POST",
+        headers: request.headers,
+        body: JSON.stringify(request.body),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) throw await errorFor(res, apiKey, o.provider);
+      const json: unknown = await res.json();
+      return o.provider === "groq" ? groqText(json) : geminiText(json);
+    } catch (error) {
+      const e = o.signal?.aborted
+        ? new AiError("cancelled", "Cancelled.")
+        : timedOut
+          ? new AiError("timeout", "AI editing timed out. Try again.")
+          : error instanceof AiError
+            ? error
+            : new AiError(
+                "network",
+                "Could not reach the AI provider. Check your connection or try another provider.",
+              );
+      if (attempt >= retryBudget(e)) throw e;
+      retry = e;
+    } finally {
+      clearTimeout(timer);
+      o.signal?.removeEventListener("abort", cancel);
+    }
+    await wait(retry?.retryAfterMs ?? RETRY_DELAYS_MS[attempt] ?? 4000, o.signal);
+  }
+}
+
+/** Retry transient provider failures, then try the configured fallback models. */
+export async function requestEditText(
+  o: Parameters<typeof requestEditTextOnce>[0],
+): Promise<string> {
+  let last: AiError | null = null;
+  const models = [o.model, ...fallbackModels(o.provider, o.model)].filter(
+    (m, i, all) => all.indexOf(m) === i,
+  );
+  for (const model of models) {
+    try {
+      return await requestEditTextOnce({ ...o, model });
+    } catch (e) {
+      if (!(e instanceof AiError) || !["busy", "timeout"].includes(e.code)) throw e;
+      last = e;
+    }
+  }
+  throw last ?? new AiError("busy", "No AI editing model could answer. Try again later.");
 }

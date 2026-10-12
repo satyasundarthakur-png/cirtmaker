@@ -48,6 +48,37 @@ export function planFieldInstruction(
   } else if ((match = text.match(/^write\s+([\s\S]+)$/i))) {
     patch = { replacement: match[1]!.replace(/^("|')([\s\S]*)\1$/, "$2") };
     summary = `Text → ${patch.replacement}`;
+  } else if (
+    (match = text.match(
+      /^font\s+(Inter|serif|Playfair Display|Great Vibes|Cormorant Garamond|Montserrat|Noto Sans Oriya|Noto Sans Devanagari)$/i,
+    ))
+  ) {
+    const fonts = [
+      "Inter",
+      "serif",
+      "Playfair Display",
+      "Great Vibes",
+      "Cormorant Garamond",
+      "Montserrat",
+      "Noto Sans Oriya",
+      "Noto Sans Devanagari",
+    ];
+    patch = {
+      font: fonts.find((f) => f.toLowerCase() === match![1]!.toLowerCase())!,
+      redraw: true,
+      erase: field.original ? "smart" : field.erase,
+    };
+    summary = `Font → ${patch.font}`;
+  } else if ((match = text.match(/^colou?r\s+(#[0-9a-f]{6})$/i))) {
+    patch = { color: match[1]!, redraw: true, erase: field.original ? "smart" : field.erase };
+    summary = `Colour → ${patch.color}`;
+  } else if ((match = text.match(/^(bold|italic)\s+(on|off)$/i))) {
+    patch = {
+      [match[1]!.toLowerCase()]: match[2]!.toLowerCase() === "on",
+      redraw: true,
+      erase: field.original ? "smart" : field.erase,
+    };
+    summary = `${match[1]} → ${match[2]}`;
   } else if (/^beautify(?: text)?$/i.test(text)) {
     patch = {
       font: "Playfair Display",
