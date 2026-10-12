@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlignCenter, AlignLeft, AlignRight, Crosshair, Loader2, Plus, ScanText, Trash2, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import CloneAiPanel from "./CloneAiPanel";
+import CloneInstructions from "./CloneInstructions";
 import { addManualField, autoMapFields, mergeFit, patchField, promoteSuggestion, removeField } from "../lib/clone";
 import { fitFieldsToInk } from "../lib/clone-erase-canvas";
 import type { CloneAlign, CloneErase, CloneKind, CloneSource, CloneTextField } from "../lib/types";
@@ -103,6 +104,7 @@ export default function CloneFields({ clone, edit, selected, onSelect, variables
       </div>
 
       <CloneAiPanel clone={clone} headers={headers} edit={edit} onSelect={onSelect} />
+      <CloneInstructions clone={clone} selected={selected} variables={variables} edit={edit} onSelect={onSelect} />
 
       {picking && (
         <p role="status" className="flex items-center justify-between gap-2 rounded-lg border border-brand bg-secondary p-2 text-xs">
