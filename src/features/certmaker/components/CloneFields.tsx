@@ -510,7 +510,18 @@ export default function CloneFields({
                     type="button"
                     className="text-brand underline"
                     onClick={() => {
-                      edit((c) => promoteSuggestion(c, s.id));
+                      const promoted = promoteSuggestion(clone, s.id);
+                      // Same look-matching pass that detected fields get, so the new field matches the original writing.
+                      void fitFieldsToInk(promoted, s.id)
+                        .catch(() => null)
+                        .then((fitted) =>
+                          edit((c) => {
+                            const next = promoteSuggestion(c, s.id);
+                            return fitted && c.image === clone.image
+                              ? mergeFit(next, fitted)
+                              : next;
+                          }),
+                        );
                       onSelect(s.id);
                     }}
                   >

@@ -5,7 +5,7 @@ import {
   parseAiResponse,
   type AiItem,
 } from "@/features/certmaker/lib/clone-ai";
-import { assignCandidateName } from "@/features/certmaker/lib/clone";
+import { assignCandidateName, autoMapFields } from "@/features/certmaker/lib/clone";
 import { detectionRows } from "@/features/certmaker/lib/clone-debug";
 import { candidateNameIssue } from "@/features/certmaker/lib/clone-name-validation";
 import type { CloneSource } from "@/features/certmaker/lib/types";
@@ -164,7 +164,7 @@ describe("manual candidate name correction", () => {
     expect(error).toBeUndefined();
     const names = clone.fields.filter((f) => f.kind === "name");
     expect(names.map((f) => f.original)).toEqual(["Course Host"]);
-    expect(names[0]?.replacement).toBe("{{name}}");
+    expect(names[0]?.replacement).toBe("Course Host");
     expect(names[0]?.detection).toMatchObject({
       source: "manual",
       accepted: true,
@@ -173,6 +173,16 @@ describe("manual candidate name correction", () => {
     const old = clone.fields.find((f) => f.original === "Priya Sharma");
     expect(old?.kind).toBe("custom");
     expect(clone.suggestions.some((f) => f.id === target.id)).toBe(false);
+  });
+
+  it("later CSV mapping follows the corrected name, not the old one", () => {
+    const c = source();
+    const target = c.suggestions.find((f) => f.original === "Course Host")!;
+    const mapped = autoMapFields(assignCandidateName(c, target.id).clone);
+    expect(mapped.fields.find((f) => f.original === "Course Host")?.replacement).toBe("{{name}}");
+    expect(mapped.fields.find((f) => f.original === "Priya Sharma")?.replacement).toBe(
+      "Priya Sharma",
+    );
   });
 
   it("refuses a paragraph-sized region", () => {

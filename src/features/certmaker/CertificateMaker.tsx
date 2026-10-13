@@ -26,8 +26,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import CloneFields, { type PickTarget } from "@/features/certmaker/components/CloneFields";
+import { fitFieldsToInk } from "@/features/certmaker/lib/clone-erase-canvas";
 import {
   assignCandidateName,
+  mergeFit,
   patchField,
   removeField,
   samplePixel,
@@ -223,7 +225,7 @@ export default function CertificateMaker() {
   const editClone = (fn: (c: NonNullable<CertData["clone"]>) => NonNullable<CertData["clone"]>) =>
     setD((p) => (p.clone ? { ...p, clone: fn(p.clone) } : p));
   /** Manual correction: the user clicked the real name. Becomes the one Candidate name field. */
-  const assignName = (id: string) => {
+  const assignName = async (id: string) => {
     const current = d.clone;
     if (!current) return;
     const result = assignCandidateName(current, id);
@@ -231,7 +233,12 @@ export default function CertificateMaker() {
       setNameMsg(result.error);
       return;
     }
-    editClone((c) => assignCandidateName(c, id).clone);
+    // Take size, ink colour and weight from the real writing, as detected fields get, so edits look the same.
+    const fitted = await fitFieldsToInk(result.clone, id).catch(() => null);
+    editClone((c) => {
+      const next = assignCandidateName(c, id).clone;
+      return fitted && c.image === current.image ? mergeFit(next, fitted) : next;
+    });
     setSelectedIds([id]);
     setDetectView("off");
     const text = current.fields.concat(current.suggestions).find((f) => f.id === id)?.original;

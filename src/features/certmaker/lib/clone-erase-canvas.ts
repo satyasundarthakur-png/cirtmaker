@@ -112,7 +112,11 @@ export async function fitFieldsToInk(clone: CloneSource, only?: string): Promise
     if (!f.original.trim()) return f; // a box added by hand has no old writing to fit
     const anchor = f.detectionBox ?? f.sourceBox ?? f;
     if (f.kind === "name") {
-      const issue = candidateNameIssue(f.original, anchor, { w: clone.width, h: clone.height });
+      // A name the user picked by hand is never second-guessed by the wording rules.
+      const issue =
+        f.detection?.source === "manual"
+          ? null
+          : candidateNameIssue(f.original, anchor, { w: clone.width, h: clone.height });
       if (issue) {
         logDetection({
           text: f.original,

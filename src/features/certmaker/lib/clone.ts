@@ -636,6 +636,8 @@ export function promoteSuggestion(c: CloneSource, id: string): CloneSource {
  * Manual correction: the user pointed at the real name. That field (a current field or a line from
  * "other text") becomes the one Candidate name; any previous name field goes back to plain custom text.
  * Hard wording rules are skipped on purpose (the user's choice wins) but paragraph-sized regions are refused.
+ * The visible text is left exactly as it was: tying the name to a CSV column stays the job of "Fill from CSV
+ * columns", which maps by field kind, so the corrected kind is what later bulk exports use.
  */
 export function assignCandidateName(
   c: CloneSource,
@@ -646,14 +648,7 @@ export function assignCandidateName(
   const problem = manualNameIssue(target, { w: c.width, h: c.height });
   if (problem) return { clone: c, error: problem };
   const demote = (f: CloneTextField): CloneTextField =>
-    f.kind === "name" && f.id !== id
-      ? {
-          ...f,
-          kind: "custom",
-          label: "Custom text",
-          ...(f.replacement === "{{name}}" ? { replacement: f.original } : {}),
-        }
-      : f;
+    f.kind === "name" && f.id !== id ? { ...f, kind: "custom", label: "Custom text" } : f;
   const promote = (f: CloneTextField): CloneTextField => {
     const { x, y, w, h } = f;
     return {
@@ -661,7 +656,6 @@ export function assignCandidateName(
       kind: "name",
       label: "Candidate name",
       detectionBox: { x, y, w, h },
-      ...(f.replacement === f.original ? { replacement: "{{name}}" } : {}),
       detection: {
         source: "manual",
         rawKind: f.detection?.rawKind ?? f.kind,
