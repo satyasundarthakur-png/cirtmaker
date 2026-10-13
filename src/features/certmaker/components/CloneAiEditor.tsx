@@ -36,6 +36,7 @@ export default function CloneAiEditor({
 }: Props) {
   const [instruction, setInstruction] = useState("");
   const [consent, setConsent] = useState(false);
+  const [askConsent, setAskConsent] = useState(false);
   const [reference, setReference] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState<EditPlan | null>(null);
@@ -43,7 +44,13 @@ export default function CloneAiEditor({
   const [message, setMessage] = useState("");
   const [visualPreview, setVisualPreview] = useState(false);
   const abort = useRef<AbortController | null>(null);
-  const ids = selectedIds ?? (selected ? [selected] : []);
+  const picked = selectedIds ?? (selected ? [selected] : []);
+  // Nothing selected: edit the Candidate name, the thing people change most.
+  const nameFields = clone.fields.filter(
+    (f) => !f.deleted && f.kind === "name" && authorizedText(f),
+  );
+  const auto = picked.length === 0 && nameFields.length === 1;
+  const ids = auto ? [nameFields[0]!.id] : picked;
   const selection = SelectionManager.resolve(clone, ids, reference);
   const revision = AIEditingEngine.revision(clone);
   const context = JSON.stringify([revision, selection, provider, model, instruction, variables]);
@@ -60,6 +67,7 @@ export default function CloneAiEditor({
   }, []);
   useEffect(() => {
     setConsent(false);
+    setAskConsent(false);
     setPlan(null);
   }, [provider]);
   const selectionKey = selection.ids.join("|");
@@ -78,17 +86,42 @@ export default function CloneAiEditor({
     setMessage("");
     setVisualPreview(false);
   }
-  function queue(commands: EditCommand[]) {
+  /** Safe, simple edits are applied at once (Undo is in the toolbar); anything with a warning waits for Accept. */
+  function finish(next: EditPlan): boolean {
+    if (next.warnings.length || !next.changes.length) return false;
     try {
-      show(AIEditingEngine.plan(clone, selection, commands));
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Could not preview edit.");
+      edit((c) => AIEditingEngine.apply(c, next));
+      setPlan(null);
+      setAskConsent(false);
+      setMessage(`Done: ${next.summary}. Undo is in the toolbar (Ctrl+Z).`);
+      return true;
+    } catch {
+      return false;
     }
   }
-  async function run() {
-    const parsed = CommandParser.local(instruction);
+  function queue(commands: EditCommand[]) {
+    try {
+      const next = AIEditingEngine.plan(clone, selection, commands);
+      if (!finish(next)) show(next);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Could not apply edit.");
+    }
+  }
+  async function run(consentNow = consent) {
+    let parsed: EditCommand[] | null;
+    try {
+      parsed = CommandParser.local(instruction);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Enter an instruction.");
+      return;
+    }
     if (parsed?.length === 1 && parsed[0]?.type === "match") {
       await matchStyle();
+      return;
+    }
+    if (!parsed && !consentNow) {
+      setAskConsent(true);
+      setMessage("");
       return;
     }
     const captured = context;
@@ -106,15 +139,15 @@ export default function CloneAiEditor({
         provider,
         apiKey,
         model,
-        consent,
+        consent: consentNow,
         signal: ctrl.signal,
       });
       if (!mounted.current || ctrl.signal.aborted) return;
       if (latest.current !== captured) {
-        setMessage("Selection, certificate or instruction changed. Generate a fresh preview.");
+        setMessage("Selection, certificate or instruction changed. Press Apply again.");
         return;
       }
-      show(result);
+      if (!finish(result)) show(result);
     } catch (e) {
       if (mounted.current && !ctrl.signal.aborted)
         setMessage(e instanceof Error ? e.message : "AI editing failed.");
@@ -194,61 +227,66 @@ export default function CloneAiEditor({
       aria-label="AI instruction editing"
       className="grid gap-3 rounded-lg border border-brand p-3 text-xs"
     >
-      <h3 className="font-semibold">Selection-aware AI editing</h3>
+      <h3 className="font-semibold">AI editing</h3>
       <p>
-        {selection.ids.length
-          ? `Selected: ${selectedFields.map((f) => f.label).join(", ")}`
-          : "Select a text box on the document or use the selection checkboxes. Shift/Ctrl-click adds to the selection."}
+        {selectedFields.length
+          ? `${auto ? "Editing (auto-selected)" : "Editing"}: ${selectedFields.map((f) => f.label).join(", ")}`
+          : "Click a text box on the certificate first."}
       </p>
-      {inspector && (
-        <p className="text-muted">
-          {inspector.locked ? "Locked" : inspector.editable ? "Editable" : "Protected"} ·{" "}
-          {inspector.style.font}, {inspector.style.fontSize}px, weight {inspector.style.fontWeight}{" "}
-          ·{" "}
-          {inspector.tokens.length ? `CSV tokens: ${inspector.tokens.join(", ")}` : "Literal text"}
-        </p>
+      <textarea
+        aria-label="AI editing instruction"
+        className="field min-h-20"
+        maxLength={4000}
+        disabled={busy}
+        value={instruction}
+        placeholder={
+          'Replace with "Rabindra"  ·  make it bigger  ·  font Playfair Display  ·  color #112233'
+        }
+        onChange={(e) => {
+          setInstruction(e.target.value);
+          setPlan(null);
+          setAskConsent(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            if (!busy && instruction.trim()) void run();
+          }
+        }}
+      />
+      {askConsent && (
+        <div role="alert" className="grid gap-2 rounded border border-line p-2">
+          <p>
+            This instruction needs {PROVIDERS[provider].name}. It will send your instruction and the
+            selected text and styles to {PROVIDERS[provider].company}. No images or CSV rows are
+            sent.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="certificate"
+              size="certificate"
+              onClick={() => {
+                setConsent(true);
+                setAskConsent(false);
+                void run(true);
+              }}
+            >
+              Send and apply
+            </Button>
+            <Button variant="certificate" size="certificate" onClick={() => setAskConsent(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
       )}
-      <label className="grid gap-1">
-        AI editing instruction
-        <textarea
-          aria-label="AI editing instruction"
-          className="field min-h-24"
-          maxLength={4000}
-          disabled={busy}
-          value={instruction}
-          placeholder={'Replace this with "Rabindra"'}
-          onChange={(e) => {
-            setInstruction(e.target.value);
-            setPlan(null);
-          }}
-        />
-      </label>
-      <p className="text-muted">
-        Simple instructions run locally. Other instructions use the configured{" "}
-        {PROVIDERS[provider].name} model. No IDs are needed. Every change requires Accept after
-        preview.
-      </p>
-      <label className="flex gap-2">
-        <input
-          type="checkbox"
-          checked={consent}
-          disabled={busy}
-          onChange={(e) => setConsent(e.target.checked)}
-        />
-        <span>
-          I agree to send my instruction and selected editable text/styles plus variable names to{" "}
-          {PROVIDERS[provider].company}. This may include personal information. Images and CSV rows
-          are not sent.
-        </span>
-      </label>
       <div className="flex flex-wrap gap-2">
         <Button
           variant="certificate"
           size="certificate"
           disabled={busy || !instruction.trim()}
-          onClick={run}
+          onClick={() => void run()}
         >
-          {busy ? "Analyzing…" : "Generate edit preview"}
+          {busy ? "Working…" : "Apply"}
         </Button>
         {busy && (
           <Button
@@ -263,226 +301,239 @@ export default function CloneAiEditor({
           </Button>
         )}
       </div>
-      <label className="grid gap-1">
-        Style reference
-        <select
-          aria-label="Style reference"
-          className="field"
-          value={reference ?? ""}
-          onChange={(e) => {
-            setReference(e.target.value || null);
-            setPlan(null);
-          }}
-        >
-          <option value="">Selected original style (or choose reference text)</option>
-          {clone.fields
-            .filter((f) => !f.deleted)
-            .map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.label}
-              </option>
-            ))}
-        </select>
-      </label>
-      <div className="flex flex-wrap gap-2">
-        {(
-          [
-            ["Match style", () => void matchStyle()],
-            ["Duplicate", () => queue([{ type: "duplicate" }])],
-            ["Remove layer", () => queue([{ type: "delete" }])],
-            ["Center", () => queue([{ type: "align", axis: "center" }])],
-            ["Align horizontally", () => queue([{ type: "align", axis: "horizontal" }])],
-            ["Lock layers", () => queue([{ type: "lock" }])],
-          ] as const
-        ).map(([label, action]) => (
-          <Button
-            key={label}
-            variant="certificate"
-            size="certificate"
-            disabled={busy || !allEditable}
-            onClick={action}
+      {message && (
+        <p role="status" className="whitespace-pre-line break-words">
+          {message}
+        </p>
+      )}
+      <details open={!!matches.length} className="grid gap-3">
+        <summary className="cursor-pointer font-semibold">
+          More tools: match style, duplicate, lock, typography
+        </summary>
+        <label className="grid gap-1">
+          Style reference
+          <select
+            aria-label="Style reference"
+            className="field"
+            value={reference ?? ""}
+            onChange={(e) => {
+              setReference(e.target.value || null);
+              setPlan(null);
+            }}
           >
-            {label}
-          </Button>
-        ))}
-        {selectedFields.some((f) => f.locked) && (
-          <Button variant="certificate" size="certificate" onClick={unlock}>
-            Preview manual unlock
-          </Button>
-        )}
-      </div>
-      {!!matches.length && (
-        <div className="grid gap-2">
-          {matches.map((m, i) => (
+            <option value="">Selected original style (or choose reference text)</option>
+            {clone.fields
+              .filter((f) => !f.deleted)
+              .map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.label}
+                </option>
+              ))}
+          </select>
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ["Match style", () => void matchStyle()],
+              ["Duplicate", () => queue([{ type: "duplicate" }])],
+              ["Remove layer", () => queue([{ type: "delete" }])],
+              ["Center", () => queue([{ type: "align", axis: "center" }])],
+              ["Align horizontally", () => queue([{ type: "align", axis: "horizontal" }])],
+              ["Lock layers", () => queue([{ type: "lock" }])],
+            ] as const
+          ).map(([label, action]) => (
             <Button
-              key={`${m.font}-${m.style.fontWeight}-${i}`}
+              key={label}
               variant="certificate"
               size="certificate"
-              onClick={() => matchCandidate(m)}
+              disabled={busy || !allEditable}
+              onClick={action}
             >
-              {["Best Match", "Alternate Match 1", "Alternate Match 2"][i]}: {m.font} ·{" "}
-              {m.confidence}% final confidence — Preview
+              {label}
             </Button>
           ))}
-          {matches[0]?.typography && (
-            <details>
-              <summary>Typography fingerprint and final confidence</summary>
-              <p>
-                Initial similarity {matches[0].typography.beforeScore}% → final{" "}
-                {matches[0].typography.finalScore}%; confidence {matches[0].confidence}%.{" "}
-                {matches[0].typography.candidatesEvaluated} candidates;{" "}
-                {matches[0].typography.refinementPasses} refinement passes.
-              </p>
-              {matches[0].targetFit?.warning && (
-                <p className="text-destructive">
-                  {matches[0].targetFit.warning} Reference size{" "}
-                  {matches[0].targetFit.requestedSize.toFixed(1)}px; fitted target size{" "}
-                  {matches[0].targetFit.appliedSize.toFixed(1)}px.
-                </p>
-              )}
-              <p>
-                Stroke {matches[0].typography.fingerprint.strokeWeight.toFixed(3)} · slant{" "}
-                {matches[0].typography.fingerprint.slantAngle}° · density{" "}
-                {matches[0].typography.fingerprint.visualDensity.toFixed(3)} · observed colour{" "}
-                {matches[0].typography.fingerprint.color} · opacity{" "}
-                {matches[0].typography.fingerprint.opacity ?? "not identifiable from opaque pixels"}
-              </p>
-              <p>
-                Measured ink-gap ratios: letters{" "}
-                {matches[0].typography.fingerprint.letterSpacing?.toFixed(3) ?? "unobservable"},
-                words {matches[0].typography.fingerprint.wordSpacing?.toFixed(3) ?? "unobservable"};
-                line-height ratio{" "}
-                {matches[0].typography.fingerprint.lineHeight?.toFixed(3) ??
-                  "single line / unobservable"}
-                . Shape aspect {matches[0].typography.fingerprint.characteristics.aspect.toFixed(3)}
-                ; stroke contrast{" "}
-                {matches[0].typography.fingerprint.characteristics.strokeContrast.toFixed(3)}.
-              </p>
-              <svg
-                viewBox="0 0 200 40"
-                role="img"
-                aria-label="Measured baseline profile"
-                className="h-10 w-full"
-              >
-                <polyline
-                  points={matches[0].typography.fingerprint.baselineShape
-                    .map((y, i) => `${(i * 200) / 15},${y * 36}`)
-                    .join(" ")}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                />
-              </svg>
-              <p className="text-muted">{matches[0].typography.uncertainties.join(" ")}</p>
-            </details>
+          {selectedFields.some((f) => f.locked) && (
+            <Button variant="certificate" size="certificate" onClick={unlock}>
+              Preview manual unlock
+            </Button>
           )}
-          <p className="text-muted">
-            Candidates are measured visually, then refined for size, spacing, kerning and alignment.
-            Confidence is a quality-adjusted similarity score, not a probability of exact font
-            identity.
-          </p>
         </div>
-      )}
-      {inspector && (
-        <details>
-          <summary className="cursor-pointer">Layer inspector and typography controls</summary>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <label>
-              Font
-              <select
-                className="field"
-                value={primary?.font}
-                disabled={!allEditable}
-                onChange={(e) => queue([{ type: "style", style: { font: e.target.value } }])}
+        {!!matches.length && (
+          <div className="grid gap-2">
+            {matches.map((m, i) => (
+              <Button
+                key={`${m.font}-${m.style.fontWeight}-${i}`}
+                variant="certificate"
+                size="certificate"
+                onClick={() => matchCandidate(m)}
               >
-                {AVAILABLE_FONTS.map((font) => (
-                  <option key={font}>{font}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Color
-              <input
-                aria-label="Layer color"
-                type="color"
-                value={primary?.color}
-                disabled={!allEditable}
-                onChange={(e) => queue([{ type: "style", style: { color: e.target.value } }])}
-              />
-            </label>
-            {(
-              [
-                ["Font size", "fontSize", primary?.fontSize ?? 24],
-                ["Font weight", "fontWeight", primary?.fontWeight ?? (primary?.bold ? 700 : 400)],
-                ["Letter spacing", "letterSpacing", primary?.letterSpacing ?? 0],
-                ["Word spacing", "wordSpacing", primary?.wordSpacing ?? 0],
-                ["Slant angle", "slantAngle", primary?.slantAngle ?? 0],
-                ["Baseline adjustment", "baselineShift", primary?.baselineShift ?? 0],
-                ["Line height", "lineHeight", primary?.lineHeight ?? 1.2],
-                ["Opacity", "opacity", primary?.opacity ?? 1],
-              ] as const
-            ).map(([label, property, value]) => (
-              <label key={property}>
-                {label}
+                {["Best Match", "Alternate Match 1", "Alternate Match 2"][i]}: {m.font} ·{" "}
+                {m.confidence}% final confidence — Preview
+              </Button>
+            ))}
+            {matches[0]?.typography && (
+              <details>
+                <summary>Typography fingerprint and final confidence</summary>
+                <p>
+                  Initial similarity {matches[0].typography.beforeScore}% → final{" "}
+                  {matches[0].typography.finalScore}%; confidence {matches[0].confidence}%.{" "}
+                  {matches[0].typography.candidatesEvaluated} candidates;{" "}
+                  {matches[0].typography.refinementPasses} refinement passes.
+                </p>
+                {matches[0].targetFit?.warning && (
+                  <p className="text-destructive">
+                    {matches[0].targetFit.warning} Reference size{" "}
+                    {matches[0].targetFit.requestedSize.toFixed(1)}px; fitted target size{" "}
+                    {matches[0].targetFit.appliedSize.toFixed(1)}px.
+                  </p>
+                )}
+                <p>
+                  Stroke {matches[0].typography.fingerprint.strokeWeight.toFixed(3)} · slant{" "}
+                  {matches[0].typography.fingerprint.slantAngle}° · density{" "}
+                  {matches[0].typography.fingerprint.visualDensity.toFixed(3)} · observed colour{" "}
+                  {matches[0].typography.fingerprint.color} · opacity{" "}
+                  {matches[0].typography.fingerprint.opacity ??
+                    "not identifiable from opaque pixels"}
+                </p>
+                <p>
+                  Measured ink-gap ratios: letters{" "}
+                  {matches[0].typography.fingerprint.letterSpacing?.toFixed(3) ?? "unobservable"},
+                  words{" "}
+                  {matches[0].typography.fingerprint.wordSpacing?.toFixed(3) ?? "unobservable"};
+                  line-height ratio{" "}
+                  {matches[0].typography.fingerprint.lineHeight?.toFixed(3) ??
+                    "single line / unobservable"}
+                  . Shape aspect{" "}
+                  {matches[0].typography.fingerprint.characteristics.aspect.toFixed(3)}; stroke
+                  contrast{" "}
+                  {matches[0].typography.fingerprint.characteristics.strokeContrast.toFixed(3)}.
+                </p>
+                <svg
+                  viewBox="0 0 200 40"
+                  role="img"
+                  aria-label="Measured baseline profile"
+                  className="h-10 w-full"
+                >
+                  <polyline
+                    points={matches[0].typography.fingerprint.baselineShape
+                      .map((y, i) => `${(i * 200) / 15},${y * 36}`)
+                      .join(" ")}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  />
+                </svg>
+                <p className="text-muted">{matches[0].typography.uncertainties.join(" ")}</p>
+              </details>
+            )}
+            <p className="text-muted">
+              Candidates are measured visually, then refined for size, spacing, kerning and
+              alignment. Confidence is a quality-adjusted similarity score, not a probability of
+              exact font identity.
+            </p>
+          </div>
+        )}
+        {inspector && (
+          <details>
+            <summary className="cursor-pointer">Layer inspector and typography controls</summary>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label>
+                Font
+                <select
+                  className="field"
+                  value={primary?.font}
+                  disabled={!allEditable}
+                  onChange={(e) => queue([{ type: "style", style: { font: e.target.value } }])}
+                >
+                  {AVAILABLE_FONTS.map((font) => (
+                    <option key={font}>{font}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Color
+                <input
+                  aria-label="Layer color"
+                  type="color"
+                  value={primary?.color}
+                  disabled={!allEditable}
+                  onChange={(e) => queue([{ type: "style", style: { color: e.target.value } }])}
+                />
+              </label>
+              {(
+                [
+                  ["Font size", "fontSize", primary?.fontSize ?? 24],
+                  ["Font weight", "fontWeight", primary?.fontWeight ?? (primary?.bold ? 700 : 400)],
+                  ["Letter spacing", "letterSpacing", primary?.letterSpacing ?? 0],
+                  ["Word spacing", "wordSpacing", primary?.wordSpacing ?? 0],
+                  ["Slant angle", "slantAngle", primary?.slantAngle ?? 0],
+                  ["Baseline adjustment", "baselineShift", primary?.baselineShift ?? 0],
+                  ["Line height", "lineHeight", primary?.lineHeight ?? 1.2],
+                  ["Opacity", "opacity", primary?.opacity ?? 1],
+                ] as const
+              ).map(([label, property, value]) => (
+                <label key={property}>
+                  {label}
+                  <input
+                    className="field"
+                    type="number"
+                    step={property === "opacity" || property === "lineHeight" ? 0.1 : 1}
+                    key={`${primary?.id}-${revision}-${property}`}
+                    defaultValue={value}
+                    disabled={!allEditable}
+                    onBlur={(e) =>
+                      queue([{ type: "style", style: { [property]: Number(e.target.value) } }])
+                    }
+                  />
+                </label>
+              ))}
+              <label>
+                Rotation
                 <input
                   className="field"
                   type="number"
-                  step={property === "opacity" || property === "lineHeight" ? 0.1 : 1}
-                  key={`${primary?.id}-${revision}-${property}`}
-                  defaultValue={value}
+                  key={`${primary?.id}-${revision}-rotation`}
+                  defaultValue={primary?.rotation ?? 0}
                   disabled={!allEditable}
-                  onBlur={(e) =>
-                    queue([{ type: "style", style: { [property]: Number(e.target.value) } }])
-                  }
+                  onBlur={(e) => queue([{ type: "rotate", degrees: Number(e.target.value) }])}
                 />
               </label>
-            ))}
-            <label>
-              Rotation
-              <input
-                className="field"
-                type="number"
-                key={`${primary?.id}-${revision}-rotation`}
-                defaultValue={primary?.rotation ?? 0}
+              <Button
+                variant="certificate"
+                size="certificate"
                 disabled={!allEditable}
-                onBlur={(e) => queue([{ type: "rotate", degrees: Number(e.target.value) }])}
-              />
-            </label>
-            <Button
-              variant="certificate"
-              size="certificate"
-              disabled={!allEditable}
-              onClick={() => queue([{ type: "style", style: { italic: !primary?.italic } }])}
-            >
-              Toggle slant
-            </Button>
-            <Button
-              variant="certificate"
-              size="certificate"
-              disabled={!allEditable}
-              onClick={() =>
-                queue([
-                  {
-                    type: "style",
-                    style: {
-                      textEffects: {
-                        strokeColor: primary?.color ?? "#000000",
-                        strokeWidth: 1,
-                        shadowColor: "#000000",
-                        shadowBlur: 2,
-                        shadowX: 1,
-                        shadowY: 1,
+                onClick={() => queue([{ type: "style", style: { italic: !primary?.italic } }])}
+              >
+                Toggle slant
+              </Button>
+              <Button
+                variant="certificate"
+                size="certificate"
+                disabled={!allEditable}
+                onClick={() =>
+                  queue([
+                    {
+                      type: "style",
+                      style: {
+                        textEffects: {
+                          strokeColor: primary?.color ?? "#000000",
+                          strokeWidth: 1,
+                          shadowColor: "#000000",
+                          shadowBlur: 2,
+                          shadowX: 1,
+                          shadowY: 1,
+                        },
                       },
                     },
-                  },
-                ])
-              }
-            >
-              Preview outline and shadow
-            </Button>
-          </div>
-        </details>
-      )}
+                  ])
+                }
+              >
+                Preview outline and shadow
+              </Button>
+            </div>
+          </details>
+        )}
+      </details>
       {plan && (
         <div aria-live="polite" className="grid gap-2 rounded border border-line p-2">
           <p className="font-semibold">{plan.summary}</p>
@@ -561,11 +612,6 @@ export default function CloneAiEditor({
             </Button>
           </div>
         </div>
-      )}
-      {message && (
-        <p role="status" className="whitespace-pre-line break-words">
-          {message}
-        </p>
       )}
     </section>
   );

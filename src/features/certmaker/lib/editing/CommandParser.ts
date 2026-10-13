@@ -114,7 +114,11 @@ export class CommandParser {
     if (!text || text.length > 4000) throw new Error("Enter an instruction of 1–4000 characters.");
     if (
       (m = text.match(
-        /^(?:replace(?:\s+(?:this|all selected names|all selected fields|text))?\s+(?:with|to)|write|set text to)\s+([\s\S]+)$/i,
+        /^(?:(?:please\s+)?(?:replace|rename)(?:\s+(?:this|it|name|text|all selected names|all selected fields))?\s+(?:with|to)|write|set(?:\s+(?:candidate\s+)?(?:text|name))?\s+to)\s+([\s\S]+)$/i,
+      )) ||
+      // "change the name to "Rabindra"": only when the new text is quoted, so free-form requests still go to the AI.
+      (m = text.match(
+        /^(?:please\s+)?(?:change|update|make)\s+(?:(?:the|this|selected)\s+)*(?:candidate\s+)?(?:names?|text|fields?|it|this)\s+(?:to|as|with)\s+(["“'‘][\s\S]+["”'’])$/i,
       ))
     )
       return [{ type: "replace", text: unquote(m[1]!) }];
@@ -145,8 +149,8 @@ export class CommandParser {
         },
       ];
     }
-    if (/^make(?: this)? (larger|smaller)$/i.test(text))
-      return [{ type: "resize", scale: /larger$/i.test(text) ? 1.15 : 0.85 }];
+    if (/^make (?:this |it )?(larger|bigger|smaller)$/i.test(text))
+      return [{ type: "resize", scale: /larger$|bigger$/i.test(text) ? 1.15 : 0.85 }];
     if ((m = text.match(/^resize(?: this)? to (\d+(?:\.\d+)?)\s*(?:x|by|×)\s*(\d+(?:\.\d+)?)$/i)))
       return [{ type: "resize", width: Number(m[1]), height: Number(m[2]) }];
     if ((m = text.match(/^rotate(?: this)?\s+(-?\d+(?:\.\d+)?)\s*(?:degrees?|°)?$/i)))

@@ -38,32 +38,53 @@ function setup(c = source(), selectedIds = ["clone-0"]) {
 }
 function instruction(text: string) {
   fireEvent.change(screen.getByLabelText("AI editing instruction"), { target: { value: text } });
-  fireEvent.click(screen.getByRole("button", { name: "Generate edit preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 }
 describe("selection-aware AI editing UI", () => {
-  it("uses selection with no ID entry and requires Accept after old/new preview", async () => {
+  it("applies a simple instruction to the selection at once, no ID entry and no extra Accept step", async () => {
     const { c, edit } = setup();
     instruction("replace with Rabindra");
-    await screen.findByRole("button", { name: "Accept edits" });
-    expect(edit).not.toHaveBeenCalled();
-    expect(screen.getByText('"Rabindra"')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Accept edits" }));
+    await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
+    expect(edit.mock.calls[0]![0](c).fields[0].replacement).toBe("Rabindra");
+    expect(screen.queryByRole("button", { name: "Accept edits" })).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/^Done:/);
+  });
+  it("understands natural phrasing when the new text is quoted", async () => {
+    const { c, edit } = setup();
+    instruction('change the name to "Rabindra Nath"');
+    await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
+    expect(edit.mock.calls[0]![0](c).fields[0].replacement).toBe("Rabindra Nath");
+  });
+  it("edits the Candidate name when nothing is selected", async () => {
+    const c = source();
+    c.fields[0]!.kind = "name";
+    const { edit } = setup(c, []);
+    expect(screen.getByText(/Editing \(auto-selected\)/)).toBeInTheDocument();
+    instruction("replace with Rabindra");
+    await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
     expect(edit.mock.calls[0]![0](c).fields[0].replacement).toBe("Rabindra");
   });
-  it("Reject leaves the document untouched", async () => {
-    const { edit } = setup();
-    instruction("duplicate this");
-    await screen.findByRole("button", { name: "Accept edits" });
-    fireEvent.click(screen.getByRole("button", { name: "Reject edits" }));
-    expect(edit).not.toHaveBeenCalled();
+  it("asks once, inline, before sending anything to the AI provider", async () => {
+    const { c, edit } = setup();
+    const instruct = vi
+      .spyOn(AIEditingEngine, "instruct")
+      .mockImplementation(async (o) =>
+        AIEditingEngine.plan(o.clone, o.selection, [{ type: "replace", text: "Rabindra" }]),
+      );
+    instruction("Please give the name a more elegant look");
+    await screen.findByRole("alert");
+    expect(instruct).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Send and apply" }));
+    await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
+    expect(instruct.mock.calls[0]![0].consent).toBe(true);
+    expect(edit.mock.calls[0]![0](c).fields[0].replacement).toBe("Rabindra");
   });
-  it("previews bulk alignment for several selected fields", async () => {
+  it("applies bulk alignment for several selected fields in one click", async () => {
     const c = source();
     c.fields.push(cloneField("Course", 400, 200, 200, 40, 1));
     const { edit } = setup(c, ["clone-0", "clone-1"]);
     instruction("align horizontally");
-    await screen.findByRole("button", { name: "Accept edits" });
-    fireEvent.click(screen.getByRole("button", { name: "Accept edits" }));
+    await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
     const next = edit.mock.calls[0]![0](c);
     expect(next.fields[0].y).toBe(next.fields[1].y);
   });
@@ -99,6 +120,14 @@ describe("selection-aware AI editing UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preview manual unlock" }));
     expect(screen.getByRole("button", { name: "Accept edits" })).toBeEnabled();
   });
+  it("keeps Reject for previewed edits and leaves the document untouched", () => {
+    const c = source();
+    c.fields[0]!.locked = true;
+    const { edit } = setup(c);
+    fireEvent.click(screen.getByRole("button", { name: "Preview manual unlock" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject edits" }));
+    expect(edit).not.toHaveBeenCalled();
+  });
   it("ignores stale asynchronous provider results when selection changes", async () => {
     const { c, props, view, edit } = setup();
     let finish!: (p: EditPlan) => void;
@@ -109,6 +138,7 @@ describe("selection-aware AI editing UI", () => {
         }),
     );
     instruction("Please give the name a more elegant layout");
+    fireEvent.click(await screen.findByRole("button", { name: "Send and apply" }));
     view.rerender(<CloneAiEditor {...props} selected={null} selectedIds={[]} />);
     await act(async () => {
       finish(
@@ -117,9 +147,7 @@ describe("selection-aware AI editing UI", () => {
         ]),
       );
     });
-    await screen.findByText(
-      "Selection, certificate or instruction changed. Generate a fresh preview.",
-    );
+    await screen.findByText("Selection, certificate or instruction changed. Press Apply again.");
     expect(edit).not.toHaveBeenCalled();
   });
   it("ignores cancelled responses even if provider resolves later", async () => {
@@ -132,6 +160,7 @@ describe("selection-aware AI editing UI", () => {
         }),
     );
     instruction("Please rewrite with a nicer formal name");
+    fireEvent.click(await screen.findByRole("button", { name: "Send and apply" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel AI editing" }));
     await act(async () => {
       finish(
@@ -143,10 +172,11 @@ describe("selection-aware AI editing UI", () => {
     expect(edit).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Accept edits" })).not.toBeInTheDocument();
   });
-  it("invalidates preview on any changed layer", async () => {
-    const { c, props, view } = setup();
-    instruction("replace with Rabindra");
-    await screen.findByRole("button", { name: "Accept edits" });
+  it("invalidates a previewed edit when any layer changes", () => {
+    const c = source();
+    c.fields[0]!.locked = true;
+    const { props, view } = setup(c);
+    fireEvent.click(screen.getByRole("button", { name: "Preview manual unlock" }));
     view.rerender(
       <CloneAiEditor
         {...props}
@@ -157,18 +187,19 @@ describe("selection-aware AI editing UI", () => {
   });
   it("is exposed in the existing Clone Mode panel without a provider key for local instructions", async () => {
     sessionStorage.clear();
+    const edit = vi.fn();
     render(
       <CloneAiPanel
         clone={source()}
         selected="clone-0"
         variables={[]}
         headers={[]}
-        edit={vi.fn()}
+        edit={edit}
         onSelect={vi.fn()}
       />,
     );
     instruction("replace with Rabindra");
-    await screen.findByRole("button", { name: "Accept edits" });
+    await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("region", { name: "AI instruction editing" })).toBeInTheDocument();
   });
 });
