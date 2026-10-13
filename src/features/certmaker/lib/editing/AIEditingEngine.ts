@@ -8,6 +8,42 @@ import { PreviewRenderer } from "./PreviewRenderer";
 import { StyleMatchEngine } from "./StyleMatchEngine";
 import type { EditCommand, EditPlan, Selection, LayerStyle } from "./types";
 const sourceIds = new Map<string, number>();
+/** Place copies near their source without covering existing text or protected geometry. */
+function duplicatePosition(clone: CloneSource, field: CloneTextField) {
+  const angle = ((field.rotation ?? 0) * Math.PI) / 180;
+  const w = Math.abs(field.w * Math.cos(angle)) + Math.abs(field.h * Math.sin(angle));
+  const h = Math.abs(field.w * Math.sin(angle)) + Math.abs(field.h * Math.cos(angle));
+  const obstacles = [...clone.fields, ...clone.suggestions]
+    .filter((f) => !f.deleted)
+    .map((f) => {
+      const radians = ((f.rotation ?? 0) * Math.PI) / 180;
+      const width = Math.abs(f.w * Math.cos(radians)) + Math.abs(f.h * Math.sin(radians));
+      const height = Math.abs(f.w * Math.sin(radians)) + Math.abs(f.h * Math.cos(radians));
+      return { x: f.x + (f.w - width) / 2, y: f.y + (f.h - height) / 2, w: width, h: height };
+    });
+  const desired = { x: field.x + field.w / 2 - w / 2, y: field.y + field.h + 8 };
+  const xs = new Set([desired.x, 0, clone.width - w]);
+  const ys = new Set([desired.y, 0, clone.height - h]);
+  for (const f of obstacles) {
+    xs.add(f.x - w - 8);
+    xs.add(f.x + f.w + 8);
+    ys.add(f.y - h - 8);
+    ys.add(f.y + f.h + 8);
+  }
+  let best: { x: number; y: number; distance: number } | undefined;
+  for (const x of xs)
+    for (const y of ys) {
+      if (x < 0 || y < 0 || x + w > clone.width || y + h > clone.height) continue;
+      const distance = (x - desired.x) ** 2 + (y - desired.y) ** 2;
+      if (best && distance >= best.distance) continue;
+      if (obstacles.some((f) => x < f.x + f.w && x + w > f.x && y < f.y + f.h && y + h > f.y))
+        continue;
+      best = { x, y, distance };
+    }
+  if (!best)
+    throw new Error("No safe space for a duplicate. Move or resize the selected text first.");
+  return { x: best.x + (w - field.w) / 2, y: best.y + (h - field.h) / 2 };
+}
 export class AIEditingEngine {
   static revision(clone: CloneSource): string {
     if (!sourceIds.has(clone.image)) sourceIds.set(clone.image, sourceIds.size + 1);
@@ -61,6 +97,7 @@ export class AIEditingEngine {
             break;
           case "duplicate": {
             const id = `clone-${nextIndex(next)}`;
+            const position = duplicatePosition(next, field);
             const copy: CloneTextField = {
               ...field,
               id,
@@ -68,7 +105,7 @@ export class AIEditingEngine {
               original: "",
               erase: "none" as const,
               cover: "",
-              y: Math.min(next.height - field.h, field.y + field.h + 8),
+              ...position,
               redraw: true,
             };
             delete copy.sourceBox;

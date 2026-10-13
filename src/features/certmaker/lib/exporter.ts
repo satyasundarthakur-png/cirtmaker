@@ -13,19 +13,33 @@ export function exportWidth(d: CertData, dpi: number): number {
   return d.cloneMode && d.clone ? d.clone.width : pixelWidth(d.paper, dpi);
 }
 
-async function canvasFor(d: CertData, widthPx: number = d.cloneMode && d.clone ? d.clone.width : EXPORT_W) {
+async function canvasFor(
+  d: CertData,
+  widthPx: number = d.cloneMode && d.clone ? d.clone.width : EXPORT_W,
+) {
   const c = document.createElement("canvas");
   await renderToCanvas(c, d, widthPx);
   return c;
 }
 
 const toBlob = (c: HTMLCanvasElement, type: string, q?: number) =>
-  new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("export failed"))), type, q));
+  new Promise<Blob>((res, rej) =>
+    c.toBlob((b) => (b ? res(b) : rej(new Error("export failed"))), type, q),
+  );
 
 async function newPdf(d: CertData) {
   const { jsPDF } = await import("jspdf");
   const [w, h] = pageSize(d);
-  return { pdf: new jsPDF({ orientation: w >= h ? "landscape" : "portrait", unit: "mm", format: [w, h], compress: true }), w, h };
+  return {
+    pdf: new jsPDF({
+      orientation: w >= h ? "landscape" : "portrait",
+      unit: "mm",
+      format: [w, h],
+      compress: true,
+    }),
+    w,
+    h,
+  };
 }
 
 export function pageSize(d: CertData): [number, number] {
@@ -34,8 +48,16 @@ export function pageSize(d: CertData): [number, number] {
 }
 
 /** Clone Mode keeps print-quality PDFs lossless (PNG inside the PDF); everything else uses JPEG. */
-function addPageImage(pdf: Awaited<ReturnType<typeof newPdf>>["pdf"], c: HTMLCanvasElement, d: CertData, quality: number, w: number, h: number) {
-  if (d.cloneMode && quality >= 0.95) pdf.addImage(dataUrl(c, "image/png"), "PNG", 0, 0, w, h, undefined, "FAST");
+function addPageImage(
+  pdf: Awaited<ReturnType<typeof newPdf>>["pdf"],
+  c: HTMLCanvasElement,
+  d: CertData,
+  quality: number,
+  w: number,
+  h: number,
+) {
+  if (d.cloneMode && quality >= 0.95)
+    pdf.addImage(dataUrl(c, "image/png"), "PNG", 0, 0, w, h, undefined, "FAST");
   else pdf.addImage(dataUrl(c, "image/jpeg", quality), "JPEG", 0, 0, w, h);
 }
 
@@ -50,12 +72,17 @@ export async function pngBlob(d: CertData): Promise<Blob> {
 }
 
 /** Render one certificate using an export profile (format, dpi, quality). */
-export async function exportWith(d: CertData, p: Pick<ExportProfile, "format" | "dpi" | "quality">): Promise<{ blob: Blob; ext: string }> {
+export async function exportWith(
+  d: CertData,
+  p: Pick<ExportProfile, "format" | "dpi" | "quality">,
+): Promise<{ blob: Blob; ext: string }> {
   if (d.cloneMode && !d.clone) throw new Error("Load an original certificate first.");
-  // Phones/tablets can refuse very large canvases (e.g. iOS ≈ 16 MP). Retry a little smaller instead of failing.
+  // Clone artwork must retain native resolution, including when canvas allocation fails.
+  // Generated templates can retry with a smaller canvas on memory-limited devices.
   const full = exportWidth(d, p.dpi);
   let lastErr: unknown;
-  for (const w of [full, Math.round(full * 0.75), Math.round(full * 0.55)]) {
+  const widths = d.cloneMode ? [full] : [full, Math.round(full * 0.75), Math.round(full * 0.55)];
+  for (const w of widths) {
     try {
       return await exportAt(d, p, w);
     } catch (e) {
@@ -71,7 +98,11 @@ const dataUrl = (c: HTMLCanvasElement, type: string, q?: number) => {
   return u;
 };
 
-async function exportAt(d: CertData, p: Pick<ExportProfile, "format" | "dpi" | "quality">, widthPx: number): Promise<{ blob: Blob; ext: string }> {
+async function exportAt(
+  d: CertData,
+  p: Pick<ExportProfile, "format" | "dpi" | "quality">,
+  widthPx: number,
+): Promise<{ blob: Blob; ext: string }> {
   const c = await canvasFor(d, widthPx);
   const ext = EXT[p.format];
   if (p.format === "png") return { blob: await toBlob(c, "image/png"), ext };
@@ -116,13 +147,23 @@ export async function batchExport(
       zip.file(`${label}.pdf`, pdf.output("blob"));
     } else if (one) {
       if (i > 0) one.pdf.addPage([one.w, one.h], one.w >= one.h ? "landscape" : "portrait");
-      one.pdf.addImage(c.toDataURL("image/jpeg", Math.min(quality, 0.9)), "JPEG", 0, 0, one.w, one.h);
+      one.pdf.addImage(
+        c.toDataURL("image/jpeg", Math.min(quality, 0.9)),
+        "JPEG",
+        0,
+        0,
+        one.w,
+        one.h,
+      );
     }
     onProgress(i + 1, items.length);
     await new Promise((r) => setTimeout(r, 0)); // let the UI breathe
   }
   if (one) return { blob: one.pdf.output("blob"), filename: "certificates.pdf" };
-  return { blob: await zip.generateAsync({ type: "blob" }), filename: `certificates-${format === "png-zip" ? "png" : format === "jpeg-zip" ? "jpg" : "pdf"}.zip` };
+  return {
+    blob: await zip.generateAsync({ type: "blob" }),
+    filename: `certificates-${format === "png-zip" ? "png" : format === "jpeg-zip" ? "jpg" : "pdf"}.zip`,
+  };
 }
 
 export function download(blob: Blob, filename: string) {

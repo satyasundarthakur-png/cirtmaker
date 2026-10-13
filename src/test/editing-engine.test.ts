@@ -308,3 +308,28 @@ it("remote planning cannot target another field or edit locked selection", async
     transport.mockRestore();
   }
 });
+
+describe("safe duplicate placement", () => {
+  it("finds nearby free space when the default position intersects protected text", () => {
+    const c = source();
+    c.suggestions = [{ ...cloneField("Protected heading", 0, 112, 1000, 45, 2), locked: true }];
+    const plan = edit(c, "duplicate this");
+    const copy = plan.next.fields.at(-1)!;
+    const protectedText = c.suggestions[0]!;
+    expect(copy.y + copy.h <= protectedText.y || copy.y >= protectedText.y + protectedText.h).toBe(
+      true,
+    );
+    expect(copy.original).toBe("");
+    expect(copy.sourceBox).toBeUndefined();
+    expect(plan.changes).toHaveLength(1);
+    expect(c.fields).toHaveLength(2);
+  });
+  it("rejects atomically when no safe space is available", () => {
+    const c = source();
+    c.suggestions = [
+      { ...cloneField("Locked artwork", 0, 0, 1000, 600, 2), protection: "artwork" },
+    ];
+    expect(() => edit(c, "duplicate this")).toThrow("No safe space");
+    expect(c.fields).toHaveLength(2);
+  });
+});
