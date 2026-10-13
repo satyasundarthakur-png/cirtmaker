@@ -47,6 +47,10 @@ export interface CloneTextField {
   rotation?: number;
   fontWeight?: number;
   letterSpacing?: number;
+  wordSpacing?: number;
+  kerning?: "normal" | "none";
+  slantAngle?: number;
+  baselineShift?: number;
   lineHeight?: number;
   multiline?: boolean;
   /** Native template baseline offset; retains baseline when changing wording. */

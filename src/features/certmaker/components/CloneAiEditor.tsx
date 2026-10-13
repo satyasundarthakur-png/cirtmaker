@@ -135,7 +135,7 @@ export default function CloneAiEditor({
     setBusy(true);
     setMessage("");
     try {
-      const ranked = await StyleMatchEngine.analyze(clone, ref);
+      const ranked = await StyleMatchEngine.analyze(clone, ref, ctrl.signal, primary);
       if (mounted.current && !ctrl.signal.aborted && latest.current === captured) {
         setMatches(ranked.slice(0, 3));
         show(AIEditingEngine.plan(clone, selection, [{ type: "match" }], ranked[0]?.style));
@@ -321,12 +321,65 @@ export default function CloneAiEditor({
               onClick={() => matchCandidate(m)}
             >
               {["Best Match", "Alternate Match 1", "Alternate Match 2"][i]}: {m.font} ·{" "}
-              {m.confidence}% similarity — Preview
+              {m.confidence}% final confidence — Preview
             </Button>
           ))}
+          {matches[0]?.typography && (
+            <details>
+              <summary>Typography fingerprint and final confidence</summary>
+              <p>
+                Initial similarity {matches[0].typography.beforeScore}% → final{" "}
+                {matches[0].typography.finalScore}%; confidence {matches[0].confidence}%.{" "}
+                {matches[0].typography.candidatesEvaluated} candidates;{" "}
+                {matches[0].typography.refinementPasses} refinement passes.
+              </p>
+              {matches[0].targetFit?.warning && (
+                <p className="text-destructive">
+                  {matches[0].targetFit.warning} Reference size{" "}
+                  {matches[0].targetFit.requestedSize.toFixed(1)}px; fitted target size{" "}
+                  {matches[0].targetFit.appliedSize.toFixed(1)}px.
+                </p>
+              )}
+              <p>
+                Stroke {matches[0].typography.fingerprint.strokeWeight.toFixed(3)} · slant{" "}
+                {matches[0].typography.fingerprint.slantAngle}° · density{" "}
+                {matches[0].typography.fingerprint.visualDensity.toFixed(3)} · observed colour{" "}
+                {matches[0].typography.fingerprint.color} · opacity{" "}
+                {matches[0].typography.fingerprint.opacity ?? "not identifiable from opaque pixels"}
+              </p>
+              <p>
+                Measured ink-gap ratios: letters{" "}
+                {matches[0].typography.fingerprint.letterSpacing?.toFixed(3) ?? "unobservable"},
+                words {matches[0].typography.fingerprint.wordSpacing?.toFixed(3) ?? "unobservable"};
+                line-height ratio{" "}
+                {matches[0].typography.fingerprint.lineHeight?.toFixed(3) ??
+                  "single line / unobservable"}
+                . Shape aspect {matches[0].typography.fingerprint.characteristics.aspect.toFixed(3)}
+                ; stroke contrast{" "}
+                {matches[0].typography.fingerprint.characteristics.strokeContrast.toFixed(3)}.
+              </p>
+              <svg
+                viewBox="0 0 200 40"
+                role="img"
+                aria-label="Measured baseline profile"
+                className="h-10 w-full"
+              >
+                <polyline
+                  points={matches[0].typography.fingerprint.baselineShape
+                    .map((y, i) => `${(i * 200) / 15},${y * 36}`)
+                    .join(" ")}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+              </svg>
+              <p className="text-muted">{matches[0].typography.uncertainties.join(" ")}</p>
+            </details>
+          )}
           <p className="text-muted">
-            Scores measure font/property or glyph similarity, not statistical certainty. Original
-            raster identification is approximate. Decorative fonts require a script-style reference.
+            Candidates are measured visually, then refined for size, spacing, kerning and alignment.
+            Confidence is a quality-adjusted similarity score, not a probability of exact font
+            identity.
           </p>
         </div>
       )}
@@ -362,6 +415,9 @@ export default function CloneAiEditor({
                 ["Font size", "fontSize", primary?.fontSize ?? 24],
                 ["Font weight", "fontWeight", primary?.fontWeight ?? (primary?.bold ? 700 : 400)],
                 ["Letter spacing", "letterSpacing", primary?.letterSpacing ?? 0],
+                ["Word spacing", "wordSpacing", primary?.wordSpacing ?? 0],
+                ["Slant angle", "slantAngle", primary?.slantAngle ?? 0],
+                ["Baseline adjustment", "baselineShift", primary?.baselineShift ?? 0],
                 ["Line height", "lineHeight", primary?.lineHeight ?? 1.2],
                 ["Opacity", "opacity", primary?.opacity ?? 1],
               ] as const

@@ -1,65 +1,11 @@
-import { fontCss, loadCloneImage } from "../clone";
+import { fontCss } from "../clone";
 import type { CloneSource, CloneTextField } from "../types";
 import { LayerInspector } from "./LayerInspector";
-import { AVAILABLE_FONTS } from "./CommandParser";
+import { TypographyFingerprintEngine } from "./TypographyFingerprintEngine";
 import type { LayerStyle, StyleMatch } from "./types";
-interface RasterDescriptor {
-  mask: number[];
-  aspect: number;
-}
-function descriptor(
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-): RasterDescriptor | null {
-  const bg = [data[0] ?? 255, data[1] ?? 255, data[2] ?? 255];
-  const ink: [number, number][] = [];
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4;
-      if (
-        (data[i + 3] ?? 0) > 20 &&
-        Math.hypot(
-          (data[i] ?? 255) - bg[0]!,
-          (data[i + 1] ?? 255) - bg[1]!,
-          (data[i + 2] ?? 255) - bg[2]!,
-        ) > 70
-      )
-        ink.push([x, y]);
-    }
-  if (ink.length < 6) return null;
-  const xs = ink.map((p) => p[0]),
-    ys = ink.map((p) => p[1]);
-  const left = Math.min(...xs),
-    top = Math.min(...ys),
-    w = Math.max(...xs) - left + 1,
-    h = Math.max(...ys) - top + 1;
-  const mask = Array<number>(64 * 32).fill(0);
-  for (const [x, y] of ink)
-    mask[
-      Math.min(31, Math.floor(((y - top) / h) * 32)) * 64 +
-        Math.min(63, Math.floor(((x - left) / w) * 64))
-    ] = 1;
-  return { mask, aspect: w / h };
-}
-function similarity(a: RasterDescriptor, b: RasterDescriptor) {
-  let intersection = 0,
-    union = 0;
-  a.mask.forEach((v, i) => {
-    if (v || b.mask[i]) union++;
-    if (v && b.mask[i]) intersection++;
-  });
-  return Math.max(
-    0,
-    Math.min(
-      100,
-      100 *
-        ((0.7 * intersection) / Math.max(1, union) +
-          (0.3 * Math.min(a.aspect, b.aspect)) / Math.max(a.aspect, b.aspect)),
-    ),
-  );
-}
+
 export class StyleMatchEngine {
+  /** Transfer authoritative editable controls; never infer a family from a 'script' label. */
   static extract(reference: CloneTextField): LayerStyle {
     const v = LayerInspector.inspect(reference).style;
     return {
@@ -72,117 +18,119 @@ export class StyleMatchEngine {
       color: v.color,
       opacity: v.opacity,
       letterSpacing: v.letterSpacing,
+      wordSpacing: v.wordSpacing,
+      kerning: v.kerning,
+      slantAngle: v.slantAngle,
+      baselineShift: v.baselineShift,
       lineHeight: v.lineHeight,
       ...(v.textEffects ? { textEffects: v.textEffects } : {}),
     };
   }
-  static rank(reference: CloneTextField, scores?: ReadonlyMap<string, number>): StyleMatch[] {
-    const script = /vibes|script|cursive/i.test(reference.font);
-    const odia = /[\u0b00-\u0b7f]/u.test(reference.replacement || reference.original);
-    const devanagari = /[\u0900-\u097f]/u.test(reference.replacement || reference.original);
-    const family = (font: string) =>
-      /vibes/i.test(font)
-        ? "script"
-        : /serif|playfair|garamond/i.test(font) && !/sans/i.test(font)
-          ? "serif"
-          : "sans";
-    const ranked = AVAILABLE_FONTS.map((font): StyleMatch => {
-      const compatible =
-        !(font === "Great Vibes" && !script) &&
-        !(odia && font !== "Noto Sans Oriya") &&
-        !(devanagari && font !== "Noto Sans Devanagari");
-      const score = !compatible
-        ? 0
-        : (scores?.get(font) ??
-          (font === reference.font ? 100 : family(font) === family(reference.font) ? 70 : 40));
-      return {
-        font,
-        score: Math.round(score),
-        confidence: Math.round(score),
-        style: { ...this.extract(reference), font },
-        source: scores ? "raster-similarity" : "editable-properties",
-        explanation: !compatible
-          ? "Excluded: decorative/script coverage mismatch"
-          : scores
-            ? "Measured glyph-mask and aspect similarity within the reference text rectangle"
-            : font === reference.font
-              ? "Exact editable font property match"
-              : "Same-family approximation from editable properties",
-      };
-    })
-      .filter((m) => m.score > 0)
-      .sort((a, b) => b.score - a.score || a.font.localeCompare(b.font));
-    if (ranked.length === 1) {
-      const best = ranked[0]!;
-      for (const fontWeight of [400, 700, 500]
-        .filter((w) => w !== (best.style.fontWeight ?? 400))
-        .slice(0, 2)) {
-        ranked.push({
-          ...best,
-          score: Math.max(
-            0,
-            best.score -
-              Math.round(5 + Math.abs(fontWeight - (best.style.fontWeight ?? 400)) / 100),
-          ),
-          confidence: Math.max(
-            0,
-            best.confidence -
-              Math.round(5 + Math.abs(fontWeight - (best.style.fontWeight ?? 400)) / 100),
-          ),
-          style: { ...best.style, fontWeight, bold: fontWeight >= 700 },
-          explanation:
-            "Same script-supported font with an alternate weight; property similarity penalty, not an exact raster font identification",
+  static async analyze(
+    clone: CloneSource,
+    reference: CloneTextField,
+    signal?: AbortSignal,
+    target?: CloneTextField,
+  ): Promise<StyleMatch[]> {
+    const matches = await TypographyFingerprintEngine.match(clone, reference, signal);
+    if (!target) return matches;
+    const canvas = document.createElement("canvas"),
+      ctx = canvas.getContext("2d");
+    if (!ctx) return matches;
+    return matches
+      .map((match) => {
+        const original = match.style;
+        let ratio = 1;
+        const scaleStyle = (factor: number): LayerStyle => ({
+          ...original,
+          fontSize: original.fontSize * factor,
+          letterSpacing: (original.letterSpacing ?? 0) * factor,
+          wordSpacing: (original.wordSpacing ?? 0) * factor,
+          baselineShift: (original.baselineShift ?? 0) * factor,
+          ...(original.textEffects
+            ? {
+                textEffects: {
+                  ...original.textEffects,
+                  strokeWidth: original.textEffects.strokeWidth * factor,
+                  shadowBlur: original.textEffects.shadowBlur * factor,
+                  shadowX: original.textEffects.shadowX * factor,
+                  shadowY: original.textEffects.shadowY * factor,
+                },
+              }
+            : {}),
         });
-      }
-    }
-    return ranked;
-  }
-  static async analyze(clone: CloneSource, reference: CloneTextField): Promise<StyleMatch[]> {
-    if (!reference.original || reference.redraw || !clone.image.startsWith("data:"))
-      return this.rank(reference);
-    if (document.fonts)
-      await Promise.all(
-        AVAILABLE_FONTS.map((font) =>
-          document.fonts
-            .load(fontCss({ ...reference, font }, 32), reference.original)
-            .catch(() => []),
-        ),
-      );
-    const img = await loadCloneImage(clone.image);
-    const box = reference.sourceBox ?? reference;
-    const canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 64;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return this.rank(reference);
-    ctx.drawImage(img, box.x, box.y, box.w, box.h, 0, 0, canvas.width, canvas.height);
-    const sample = descriptor(
-      ctx.getImageData(0, 0, canvas.width, canvas.height).data,
-      canvas.width,
-      canvas.height,
-    );
-    if (!sample) return this.rank(reference);
-    const scores = new Map<string, number>();
-    for (const font of AVAILABLE_FONTS) {
-      // Only loaded fonts are scored; never misreport a browser fallback as the named face.
-      const candidate = { ...reference, font };
-      if (document.fonts && !document.fonts.check(fontCss(candidate, 32), reference.original))
-        continue;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, 256, 64);
-      ctx.font = fontCss(candidate, 32);
-      ctx.textBaseline = "middle";
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#000000";
-      if ("letterSpacing" in ctx)
-        (ctx as unknown as { letterSpacing: string }).letterSpacing =
-          `${reference.letterSpacing ?? 0}px`;
-      ctx.fillText(reference.original, 128, 32, 250);
-      const candidateSample = descriptor(ctx.getImageData(0, 0, 256, 64).data, 256, 64);
-      if (candidateSample) scores.set(font, similarity(sample, candidateSample));
-    }
-    if (!scores.size) return this.rank(reference);
-    const ranked = this.rank(reference, scores).filter((m) => scores.has(m.font));
-    return ranked.length ? ranked : this.rank(reference);
+        for (let pass = 0; pass < 5; pass++) {
+          const field = { ...target, ...scaleStyle(ratio) };
+          ctx.font = fontCss(field, field.fontSize);
+          ctx.fontKerning = field.kerning ?? "normal";
+          const nativeLetters = Reflect.has(ctx, "letterSpacing"),
+            nativeWords = Reflect.has(ctx, "wordSpacing");
+          if (nativeLetters)
+            (ctx as unknown as { letterSpacing: string }).letterSpacing =
+              `${field.letterSpacing ?? 0}px`;
+          if (nativeWords)
+            (ctx as unknown as { wordSpacing: string }).wordSpacing = `${field.wordSpacing ?? 0}px`;
+          let lines = field.replacement.replace(/\t/g, " ").split(/\r?\n/);
+          if (field.multiline)
+            lines = lines.flatMap((paragraph) => {
+              const out: string[] = [];
+              let line = "";
+              for (const word of paragraph.split(/\s+/)) {
+                const next = line ? `${line} ${word}` : word;
+                if (line && ctx.measureText(next).width > field.w - 4) {
+                  out.push(line);
+                  line = word;
+                } else line = next;
+              }
+              out.push(line);
+              return out;
+            });
+          let step = 1;
+          for (const line of lines) {
+            const metrics = ctx.measureText(line);
+            const measured =
+              metrics.width +
+              (nativeLetters ? 0 : Math.max(0, line.length - 1) * (field.letterSpacing ?? 0)) +
+              (nativeWords ? 0 : (line.match(/\s/g)?.length ?? 0) * (field.wordSpacing ?? 0));
+            step = Math.min(
+              step,
+              Math.max(0.1, field.w - 4) / Math.max(0.1, measured),
+              Math.max(0.1, field.h - 4) /
+                Math.max(
+                  0.1,
+                  (metrics.actualBoundingBoxAscent ?? field.fontSize * 0.8) +
+                    (metrics.actualBoundingBoxDescent ?? field.fontSize * 0.2),
+                ),
+            );
+          }
+          step = Math.min(
+            step,
+            Math.max(0.1, field.h - 4) /
+              Math.max(
+                0.1,
+                field.fontSize * (1 + Math.max(0, lines.length - 1) * (field.lineHeight ?? 1.2)),
+              ),
+          );
+          if (step >= 0.999) break;
+          ratio *= Math.max(0.001, step * 0.99);
+        }
+        ratio = Math.min(1, ratio);
+        const style = scaleStyle(ratio);
+        return {
+          ...match,
+          style,
+          confidence: Math.round(match.confidence * ratio),
+          targetFit: {
+            ratio,
+            requestedSize: original.fontSize,
+            appliedSize: style.fontSize,
+            warning:
+              ratio < 0.98
+                ? "Target box requires smaller text. Enlarge it for closer size fidelity."
+                : null,
+          },
+        };
+      })
+      .sort((a, b) => b.confidence - a.confidence || b.score - a.score);
   }
 }

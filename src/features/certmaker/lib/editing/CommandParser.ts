@@ -25,6 +25,10 @@ export const styleSchema = z
       .string()
       .regex(/^#[\da-f]{6}$/i)
       .optional(),
+    wordSpacing: finite.min(-20).max(100).optional(),
+    kerning: z.enum(["normal", "none"]).optional(),
+    slantAngle: finite.min(-24).max(24).optional(),
+    baselineShift: finite.min(-4096).max(4096).optional(),
     letterSpacing: finite.min(-20).max(100).optional(),
     lineHeight: finite.min(0.5).max(5).optional(),
     opacity: finite.min(0).max(1).optional(),

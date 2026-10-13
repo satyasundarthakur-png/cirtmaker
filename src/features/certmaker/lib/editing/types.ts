@@ -8,6 +8,10 @@ export type LayerStyle = Pick<
   | "align"
   | "color"
   | "fontWeight"
+  | "wordSpacing"
+  | "kerning"
+  | "slantAngle"
+  | "baselineShift"
   | "letterSpacing"
   | "lineHeight"
   | "opacity"
@@ -48,6 +52,8 @@ export interface StyleMatch {
   score: number;
   confidence: number;
   style: LayerStyle;
-  source: "editable-properties" | "raster-similarity";
+  source: "editable-properties" | "raster-similarity" | "typography-fingerprint";
+  targetFit?: { ratio: number; requestedSize: number; appliedSize: number; warning: string | null };
+  typography?: import("./TypographyFingerprintEngine").TypographyMatchReport;
   explanation: string;
 }

@@ -189,7 +189,14 @@ export class AIEditingEngine {
       );
       const match =
         local.some((c) => c.type === "match") && reference
-          ? (await StyleMatchEngine.analyze(o.clone, reference))[0]?.style
+          ? (
+              await StyleMatchEngine.analyze(
+                o.clone,
+                reference,
+                o.signal,
+                o.clone.fields.find((f) => f.id === o.selection.primary),
+              )
+            )[0]?.style
           : undefined;
       return this.plan(o.clone, o.selection, local, match);
     }
@@ -216,7 +223,14 @@ export class AIEditingEngine {
     );
     const match =
       parsed.commands.some((c) => c.type === "match") && reference
-        ? (await StyleMatchEngine.analyze(o.clone, reference))[0]?.style
+        ? (
+            await StyleMatchEngine.analyze(
+              o.clone,
+              reference,
+              o.signal,
+              o.clone.fields.find((f) => f.id === o.selection.primary),
+            )
+          )[0]?.style
         : undefined;
     return this.plan(o.clone, o.selection, parsed.commands, match, parsed.explanation);
   }

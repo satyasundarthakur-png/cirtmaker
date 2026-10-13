@@ -173,6 +173,11 @@ export function paintCloneFields(
       });
     }
     const spacing = f.letterSpacing ?? 0;
+    const wordSpacing = f.wordSpacing ?? 0;
+    const nativeWordSpacing = Reflect.has(ctx, "wordSpacing");
+    if (nativeWordSpacing)
+      (ctx as unknown as { wordSpacing: string }).wordSpacing = `${wordSpacing}px`;
+    ctx.fontKerning = f.kerning ?? "normal";
     const nativeSpacing = Reflect.has(ctx, "letterSpacing");
     if (nativeSpacing) (ctx as unknown as { letterSpacing: string }).letterSpacing = `${spacing}px`;
     let size = f.fontSize;
@@ -184,7 +189,10 @@ export function paintCloneFields(
           line,
           (s) => fontCss(f, s),
           size,
-          f.w - 2 * padX - (nativeSpacing ? 0 : Math.max(0, line.length - 1) * spacing),
+          f.w -
+            2 * padX -
+            (nativeSpacing ? 0 : Math.max(0, line.length - 1) * spacing) -
+            (nativeWordSpacing ? 0 : (line.match(/\s/g)?.length ?? 0) * wordSpacing),
           f.h - 2 * padY,
         ).size,
       );
@@ -204,9 +212,15 @@ export function paintCloneFields(
     const tx =
       f.align === "center" ? f.x + f.w / 2 : f.align === "right" ? f.x + f.w - padX : f.x + padX;
     const startY =
-      f.baselineOffset !== undefined
+      (f.baselineShift ?? 0) +
+      (f.baselineOffset !== undefined
         ? f.y + (f.baselineOffset * f.h) / (f.sourceBox?.h ?? f.h)
-        : f.y + (f.h - blockHeight) / 2 + ascent;
+        : f.y + (f.h - blockHeight) / 2 + ascent);
+    if (f.slantAngle) {
+      ctx.translate(tx, startY);
+      ctx.transform(1, 0, -Math.tan((f.slantAngle * Math.PI) / 180), 1, 0, 0);
+      ctx.translate(-tx, -startY);
+    }
     const fx = f.textEffects;
     if (fx) {
       ctx.shadowColor = fx.shadowColor;
@@ -222,19 +236,20 @@ export function paintCloneFields(
         ctx.lineJoin = "round";
         ctx.strokeText(line, tx, startY + i * gap);
       }
-      if (spacing && !nativeSpacing) {
+      if ((spacing && !nativeSpacing) || (wordSpacing && !nativeWordSpacing)) {
         const segments = Array.from(
           new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(line),
           (s) => s.segment,
         );
         const width =
           segments.reduce((n, g) => n + ctx.measureText(g).width, 0) +
-          Math.max(0, segments.length - 1) * spacing;
+          Math.max(0, segments.length - 1) * spacing +
+          (line.match(/\s/g)?.length ?? 0) * wordSpacing;
         let x = tx - (f.align === "center" ? width / 2 : f.align === "right" ? width : 0);
         ctx.textAlign = "left";
         segments.forEach((g) => {
           ctx.fillText(g, x, startY + i * gap);
-          x += ctx.measureText(g).width + spacing;
+          x += ctx.measureText(g).width + spacing + (/\s/.test(g) ? wordSpacing : 0);
         });
         ctx.textAlign = f.align;
       } else ctx.fillText(line, tx, startY + i * gap);
@@ -556,6 +571,10 @@ export function patchField(
         "align",
         "weight",
         "fontWeight",
+        "wordSpacing",
+        "kerning",
+        "slantAngle",
+        "baselineShift",
         "letterSpacing",
         "lineHeight",
         "opacity",

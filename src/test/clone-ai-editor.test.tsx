@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { StyleMatchEngine } from "@/features/certmaker/lib/editing/StyleMatchEngine";
 import CloneAiEditor from "@/features/certmaker/components/CloneAiEditor";
 import CloneAiPanel from "@/features/certmaker/components/CloneAiPanel";
 import { AIEditingEngine } from "@/features/certmaker/lib/editing/AIEditingEngine";
@@ -68,6 +69,23 @@ describe("selection-aware AI editing UI", () => {
   });
   it("shows best and alternate style matches and creates preview on click", async () => {
     setup();
+    vi.spyOn(StyleMatchEngine, "analyze").mockResolvedValue(
+      ["Inter", "Montserrat", "Playfair Display"].map((font, i) => ({
+        font,
+        score: 95 - i,
+        confidence: 95 - i,
+        style: {
+          font,
+          fontSize: 32,
+          bold: false,
+          italic: false,
+          align: "center" as const,
+          color: "#17181a",
+        },
+        source: "typography-fingerprint" as const,
+        explanation: "Measured fingerprint",
+      })),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Match style" }));
     await screen.findByRole("button", { name: /Best Match:/ });
     expect(screen.getByRole("button", { name: /Alternate Match 1:/ })).toBeInTheDocument();

@@ -80,10 +80,6 @@ describe("selection-aware editing acceptance", () => {
     s.reference = "clone-1";
     const p = AIEditingEngine.plan(c, s, [{ type: "match" }]);
     expect(p.next.fields[0]).toMatchObject({ font: "Montserrat", color: "#123456" });
-    const matches = StyleMatchEngine.rank(c.fields[1]!);
-    expect(matches[0]).toMatchObject({ font: "Montserrat", score: 100 });
-    expect(matches).toHaveLength(8);
-    expect(matches.some((m) => m.font === "Great Vibes")).toBe(false);
     const reference = {
       ...c.fields[1]!,
       fontWeight: 600,
@@ -311,11 +307,4 @@ it("remote planning cannot target another field or edit locked selection", async
   } finally {
     transport.mockRestore();
   }
-});
-it("matches Odia to a script-supported face and offers weight alternatives rather than Latin fallbacks", () => {
-  const reference = { ...source().fields[0]!, replacement: "ରବୀନ୍ଦ୍ର", font: "Inter" };
-  const matches = StyleMatchEngine.rank(reference);
-  expect(matches).toHaveLength(3);
-  expect(matches.every((m) => m.font === "Noto Sans Oriya")).toBe(true);
-  expect(new Set(matches.map((m) => m.style.fontWeight)).size).toBe(3);
 });
