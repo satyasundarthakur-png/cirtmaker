@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { CertData, CloneSource, CloneTextField } from "@/features/certmaker/lib/types";
 import CloneOverlay from "./CloneOverlay";
+import type { DetectView } from "@/features/certmaker/lib/clone-debug";
 import { certHeight, renderToCanvas, type Region } from "@/features/certmaker/lib/render";
 
 /** Clone Mode editing hooks: boxes on top of the locked original, plus the colour picker. */
@@ -12,6 +13,8 @@ export interface CloneEdit {
   onSelect: (id: string | null, additive?: boolean) => void;
   onChange: (id: string, patch: Partial<CloneTextField>) => void;
   onRemove: (id: string) => void;
+  detectView?: DetectView | undefined;
+  onAssignName?: ((id: string) => void) | undefined;
   /** When set, the next click on the certificate reports the original-image pixel clicked. */
   onPixel?: ((x: number, y: number) => void) | undefined;
 }
@@ -119,6 +122,8 @@ export default function Preview({ data, selected, onSelect, zoom = 1, cloneEdit 
             onSelect={cloneEdit.onSelect}
             onChange={cloneEdit.onChange}
             onRemove={cloneEdit.onRemove}
+            detectView={cloneEdit.detectView}
+            onAssignName={cloneEdit.onAssignName}
           />
         )}
         {sel && !cloneEdit && !busy && !error && (

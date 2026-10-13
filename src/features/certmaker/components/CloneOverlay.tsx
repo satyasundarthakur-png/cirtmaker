@@ -2,6 +2,8 @@ import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { authorizedText } from "../lib/editing/SelectionManager";
 import { dragBox, nudgeBox, type Handle } from "../lib/clone-geometry";
 import type { CloneSource, CloneTextField } from "../lib/types";
+import type { DetectView } from "../lib/clone-debug";
+import DetectionLayer from "./DetectionLayer";
 
 interface Props {
   clone: CloneSource;
@@ -12,6 +14,8 @@ interface Props {
   onSelect: (id: string | null, additive?: boolean) => void;
   onChange: (id: string, patch: Partial<CloneTextField>) => void;
   onRemove: (id: string) => void;
+  detectView?: DetectView | undefined;
+  onAssignName?: ((id: string) => void) | undefined;
 }
 
 const HANDLES: { h: Exclude<Handle, "move">; cls: string; cursor: string }[] = [
@@ -47,6 +51,8 @@ export default function CloneOverlay({
   onSelect,
   onChange,
   onRemove,
+  detectView = "off",
+  onAssignName,
 }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -153,6 +159,7 @@ export default function CloneOverlay({
                 width: `${(f.w / clone.width) * 100}%`,
                 height: `${(f.h / clone.height) * 100}%`,
                 transform: `rotate(${f.rotation ?? 0}deg)`,
+                ...(detectView === "pickName" ? { pointerEvents: "none" as const } : {}),
               }}
               onPointerDown={(e) => begin(e, f, "move")}
               onPointerMove={move}
@@ -225,6 +232,9 @@ export default function CloneOverlay({
             </div>
           );
         })}
+      {detectView !== "off" && (
+        <DetectionLayer clone={clone} view={detectView} onAssignName={onAssignName} />
+      )}
     </div>
   );
 }

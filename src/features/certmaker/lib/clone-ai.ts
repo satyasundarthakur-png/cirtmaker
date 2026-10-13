@@ -1,4 +1,11 @@
-import { candidateNameIssue, logDetection } from "./clone-name-validation";
+import {
+  MIN_PROMOTE_SCORE,
+  candidateNameIssue,
+  logDetection,
+  logRawDetection,
+  median,
+  nameScore,
+} from "./clone-name-validation";
 import { byPosition } from "./util";
 /**
  * AI detection and consented text-only instruction transport for Clone Mode. Two providers: Google Gemini and Groq.
@@ -174,7 +181,7 @@ export function buildPrompt(headers: string[], dims?: { width: number; height: n
     "List every piece of text you can read. Transcribe it exactly, in its own script (for example Odia or Hindi), without translating or correcting it. " +
     'Give "box_2d" as [ymin, xmin, ymax, xmax] normalised to 0-1000, drawn tightly around only the text itself, never around decorations, borders, seals or logos. ' +
     scale +
-    'Classify each item with "kind": "name" (the recipient or candidate name, or a placeholder for it), "certId" (the certificate, serial or registration number value), ' +
+    'Classify each item with "kind": "name" (ONLY the short line holding the recipient\'s own name: normally 1 to 6 words, centred, in larger type than the sentences around it; NEVER a sentence or paragraph, and never wording such as "bearing registration number", "has successfully completed" or "conducted by"; if the name is not on its own line use "other"), "certId" (the certificate, serial or registration number value), ' +
     '"date" (the issue date value), "course" (the course, programme, workshop or event title), "custom" (any other value that would change per person, such as a grade, score or place), ' +
     'or "other" (everything static: headings, sentences of wording, labels, signatory names and titles, institution names). ' +
     'When a line is "Label: value", return only the value as the item and treat the label as static. ' +
@@ -387,8 +394,9 @@ export function parseAiResponse(
   json: unknown,
   headers: string[] = [],
   opts: ParseOptions = {},
-): { items: AiItem[]; dropped: number } {
+): { items: AiItem[]; dropped: number; raw: string } {
   const text = opts.provider === "groq" ? groqText(json) : geminiText(json);
+  logRawDetection(opts.provider ?? "gemini", text);
   let data: unknown;
   try {
     data = extractJson(text);
@@ -430,7 +438,7 @@ export function parseAiResponse(
         ? "The AI's answer had no usable text boxes. Try again, or use the built-in detection."
         : "The AI found no text on this certificate.",
     );
-  return { items, dropped: list.length - items.length };
+  return { items, dropped: list.length - items.length, raw: text };
 }
 
 /* ---------- items -> fields ---------- */
@@ -440,43 +448,101 @@ export function itemsToFields(
   page: { w: number; h: number },
   startIndex: number,
 ): { fields: CloneTextField[]; suggestions: CloneTextField[] } {
+  const geo = items.map((it) => {
+    const w = ((it.box.x1 - it.box.x0) / 1000) * page.w;
+    const h = ((it.box.y1 - it.box.y0) / 1000) * page.h;
+    return { x: (it.box.x0 / 1000) * page.w, y: (it.box.y0 / 1000) * page.h, w, h };
+  });
+  // Body text height = what most lines on the page are; the name should be taller than this.
+  const bodyHeight = median(geo.filter((_, i) => items[i]!.kind === "other").map((b) => b.h));
+  const scoreOf = (i: number) => nameScore(items[i]!.text, geo[i]!, page, bodyHeight);
+
+  // 1. Judge every region the model called a name: hard rules first, then a 0-100 score.
+  const verdict = items.map((it, i) => {
+    if (it.kind !== "name") return null;
+    const issue = candidateNameIssue(it.text, geo[i]!, page);
+    return { issue, score: issue ? 0 : scoreOf(i) };
+  });
+  let chosen = -1;
+  verdict.forEach((v, i) => {
+    if (v && !v.issue && (chosen < 0 || v.score > verdict[chosen]!.score)) chosen = i;
+  });
+
+  // 2. The model's name was rejected (or missing): search the remaining text for the best match.
+  let promoted = false;
+  if (chosen < 0) {
+    let best = 0;
+    items.forEach((it, i) => {
+      if (it.kind === "name" || !it.text.trim()) return;
+      if (candidateNameIssue(it.text, geo[i]!, page)) return;
+      const score = scoreOf(i);
+      if (score >= MIN_PROMOTE_SCORE && score > best) {
+        best = score;
+        chosen = i;
+        promoted = true;
+      }
+    });
+  }
+
   const fields: CloneTextField[] = [];
   const suggestions: CloneTextField[] = [];
   let n = startIndex;
-  for (const it of items) {
-    const w = ((it.box.x1 - it.box.x0) / 1000) * page.w;
-    const h = ((it.box.y1 - it.box.y0) / 1000) * page.h;
-    const box = { x: (it.box.x0 / 1000) * page.w, y: (it.box.y0 / 1000) * page.h, w, h };
-    const issue = it.kind === "name" ? candidateNameIssue(it.text, box, page) : null;
+  items.forEach((it, i) => {
+    const box = geo[i]!;
+    const v = verdict[i];
+    const isName = i === chosen;
+    const reason =
+      it.kind === "name" && !isName
+        ? (v?.issue ?? "another region is a better Candidate name match")
+        : isName && promoted
+          ? "promoted from other text: the model's name region was rejected"
+          : undefined;
+    const kind: CloneKind = isName
+      ? "name"
+      : it.kind === "other" || it.kind === "name"
+        ? "custom"
+        : it.kind;
+    const editable = isName || (it.kind !== "other" && it.kind !== "name");
+    const confidence = isName ? scoreOf(i) : editable ? 80 : 0;
     logDetection({
       text: it.text,
       kind: it.kind,
       box,
-      confidence: issue ? 0 : 80,
+      confidence,
       stage: "ai-conversion",
-      reason: issue ?? undefined,
+      reason,
     });
-    const kind: CloneKind = it.kind === "other" || issue ? "custom" : it.kind;
-    const editable = it.kind !== "other" && !issue;
-    if (!editable && suggestions.length >= MAX_SUGGESTIONS) continue;
+    if (!editable && suggestions.length >= MAX_SUGGESTIONS) return;
     const d: Detected = {
       kind,
       label: editable ? KIND_LABEL[kind] : "Other text",
       box,
       text: it.text,
-      size: h * 0.85,
+      size: box.h * 0.85,
       fontHint: `${it.font === "script" ? "script" : it.font === "serif" ? "serif" : "sans"}${it.bold ? " bold" : ""}${it.italic ? " italic" : ""}`,
     };
     const field = fieldFromDetected(d, `clone-${n++}`, page);
     if (it.align) field.align = it.align;
     if (editable && it.column) field.replacement = `{{${it.column}}}`;
+    field.detection = {
+      source: "ai",
+      rawKind: it.kind,
+      rawText: it.text,
+      confidence,
+      accepted: editable,
+      reason,
+    };
     (editable ? fields : suggestions).push(field);
-  }
+  });
   return { fields: fields.sort(byPosition), suggestions: suggestions.sort(byPosition) };
 }
 
 /** Replace the detected boxes with the AI's. Boxes the user added by hand are kept. */
-export function applyAiDetection(clone: CloneSource, items: AiItem[]): CloneSource {
+export function applyAiDetection(
+  clone: CloneSource,
+  items: AiItem[],
+  meta?: { provider: string; raw: string },
+): CloneSource {
   const manual = clone.fields.filter(
     (f) => !f.original || f.locked || (f.protection && f.protection !== "text"),
   );
@@ -490,6 +556,7 @@ export function applyAiDetection(clone: CloneSource, items: AiItem[]): CloneSour
   const reserved = manual.filter((f) => f.locked || (f.protection && f.protection !== "text"));
   return {
     ...clone,
+    ...(meta ? { debug: meta } : {}),
     fields: [...fields.filter((f) => !reserved.some((r) => overlap(f, r))), ...manual].sort(
       byPosition,
     ),
@@ -554,7 +621,9 @@ async function errorFor(res: Response, apiKey: string, provider: AiProvider): Pr
   return new AiError("other", `${name} returned an error (${res.status}). ${detail}`.trim());
 }
 
-export async function detectOnce(o: DetectOptions): Promise<{ items: AiItem[]; dropped: number }> {
+export async function detectOnce(
+  o: DetectOptions,
+): Promise<{ items: AiItem[]; dropped: number; raw: string }> {
   const apiKey = o.apiKey.trim();
   const info = PROVIDERS[o.provider];
   if (!apiKey) throw new AiError("key", `Enter your ${info.name} API key first.`);
@@ -646,7 +715,7 @@ function retryBudget(e: AiError): number {
  */
 export async function detectResilient(
   o: ResilientOptions,
-): Promise<{ items: AiItem[]; dropped: number; model: string }> {
+): Promise<{ items: AiItem[]; dropped: number; raw: string; model: string }> {
   const sleep = o.sleep ?? wait;
   const info = PROVIDERS[o.provider];
   const models = [o.model, ...(o.fallbacks ?? fallbackModels(o.provider, o.model))].filter(

@@ -13,6 +13,9 @@ import {
 import { Button } from "@/components/ui/button";
 import CloneAiPanel from "./CloneAiPanel";
 import CloneInstructions from "./CloneInstructions";
+import DetectionDebug from "./DetectionDebug";
+import { authorizedText } from "../lib/editing/SelectionManager";
+import type { DetectView } from "../lib/clone-debug";
 import {
   addManualField,
   autoMapFields,
@@ -42,6 +45,10 @@ interface Props {
   headers: string[];
   picking: PickTarget | null;
   onPick: (target: PickTarget | null) => void;
+  detectView?: DetectView | undefined;
+  onDetectView?: ((v: DetectView) => void) | undefined;
+  onAssignName?: ((id: string) => void) | undefined;
+  nameMessage?: string | undefined;
 }
 
 const FONTS = [
@@ -92,6 +99,10 @@ export default function CloneFields({
   headers,
   picking,
   onPick,
+  detectView = "off",
+  onDetectView,
+  onAssignName,
+  nameMessage = "",
 }: Props) {
   useEffect(() => {
     if (selected) document.getElementById(`card-${selected}`)?.scrollIntoView({ block: "nearest" });
@@ -246,6 +257,15 @@ export default function CloneFields({
               />
               {f.original && (
                 <p className="break-words text-[11px] text-muted">Original text: {f.original}</p>
+              )}
+              {f.original && f.kind !== "name" && onAssignName && authorizedText(f) && (
+                <button
+                  type="button"
+                  className="justify-self-start text-[11px] text-brand underline"
+                  onClick={() => onAssignName(f.id)}
+                >
+                  This is the candidate name
+                </button>
               )}
 
               {on && (
@@ -457,6 +477,15 @@ export default function CloneFields({
           );
         })}
 
+      {onDetectView && (
+        <DetectionDebug
+          clone={clone}
+          view={detectView}
+          onView={onDetectView}
+          message={nameMessage}
+        />
+      )}
+
       {clone.suggestions.length > 0 && (
         <details className="rounded-lg border border-line p-3">
           <summary className="cursor-pointer text-xs font-semibold text-muted">
@@ -467,16 +496,27 @@ export default function CloneFields({
             {clone.suggestions.map((s) => (
               <li key={s.id} className="flex items-start justify-between gap-2 text-xs">
                 <span className="min-w-0 break-words">{s.original}</span>
-                <button
-                  type="button"
-                  className="shrink-0 text-brand underline"
-                  onClick={() => {
-                    edit((c) => promoteSuggestion(c, s.id));
-                    onSelect(s.id);
-                  }}
-                >
-                  Make editable
-                </button>
+                <span className="flex shrink-0 gap-3">
+                  {onAssignName && (
+                    <button
+                      type="button"
+                      className="text-brand underline"
+                      onClick={() => onAssignName(s.id)}
+                    >
+                      This is the candidate name
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="text-brand underline"
+                    onClick={() => {
+                      edit((c) => promoteSuggestion(c, s.id));
+                      onSelect(s.id);
+                    }}
+                  >
+                    Make editable
+                  </button>
+                </span>
               </li>
             ))}
           </ul>

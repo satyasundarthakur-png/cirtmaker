@@ -77,6 +77,7 @@ export default function CloneAiPanel({
       const {
         items,
         dropped,
+        raw,
         model: used,
       } = await detectResilient({
         provider,
@@ -88,7 +89,7 @@ export default function CloneAiPanel({
         onStatus: setProgress,
       });
       // ignore the answer if the template was swapped while we waited
-      const applied = applyAiDetection(clone, items);
+      const applied = applyAiDetection(clone, items, { provider, raw });
       // AI boxes are often a little short or off: fit them to the real writing before showing them
       const fitted = await fitFieldsToInk(applied).catch(() => applied);
       if (ctrl.signal.aborted) return;

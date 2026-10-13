@@ -33,6 +33,18 @@ export type CloneAlign = "left" | "center" | "right";
 export type CloneErase = "smart" | "patch" | "none";
 
 /** One editable text rectangle laid over the locked original. All numbers are pixels of the original image. */
+/** How a field was found and why it was (or was not) accepted. Debug/audit data only; never affects rendering. */
+export interface FieldDetection {
+  source: "ai" | "ocr" | "manual";
+  /** What the detector said it was, before validation. */
+  rawKind: string;
+  rawText: string;
+  /** 0–100. 0 = rejected. */
+  confidence: number;
+  accepted: boolean;
+  reason?: string | undefined;
+}
+
 export interface CloneTextField {
   id: string;
   kind: CloneKind;
@@ -64,6 +76,7 @@ export interface CloneTextField {
     shadowX: number;
     shadowY: number;
   };
+  detection?: FieldDetection | undefined;
   /** Immutable location of original ink; moving a replacement must erase here. */
   sourceBox?: { x: number; y: number; w: number; h: number };
   /** Original OCR/PDF/AI text rectangle; fitting cannot grow a detected name outside it. */
@@ -98,6 +111,8 @@ export interface CloneSource {
   fields: CloneTextField[];
   /** Other text found on the certificate. Not editable unless the user promotes it. */
   suggestions: CloneTextField[];
+  /** Last AI answer, kept in memory only so detection can be inspected in the debug view. */
+  debug?: { provider: string; raw: string } | undefined;
 }
 
 export interface CertData {

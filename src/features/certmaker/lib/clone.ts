@@ -1,4 +1,4 @@
-import { candidateNameIssue, logDetection } from "./clone-name-validation";
+import { candidateNameIssue, logDetection, manualNameIssue } from "./clone-name-validation";
 import { byPosition, hex } from "./util";
 import { buildLines, detectFields, type Detected, type RawItem } from "./clone-detect";
 import { clampBox, clonePageMm, isCentered } from "./clone-geometry";
@@ -629,6 +629,58 @@ export function promoteSuggestion(c: CloneSource, id: string): CloneSource {
     ...c,
     suggestions: c.suggestions.filter((x) => x.id !== id),
     fields: [...c.fields, s].sort(byPosition),
+  };
+}
+
+/**
+ * Manual correction: the user pointed at the real name. That field (a current field or a line from
+ * "other text") becomes the one Candidate name; any previous name field goes back to plain custom text.
+ * Hard wording rules are skipped on purpose (the user's choice wins) but paragraph-sized regions are refused.
+ */
+export function assignCandidateName(
+  c: CloneSource,
+  id: string,
+): { clone: CloneSource; error?: string } {
+  const target = [...c.fields, ...c.suggestions].find((f) => f.id === id);
+  if (!target || !authorizedText(target)) return { clone: c, error: "That text cannot be edited." };
+  const problem = manualNameIssue(target, { w: c.width, h: c.height });
+  if (problem) return { clone: c, error: problem };
+  const demote = (f: CloneTextField): CloneTextField =>
+    f.kind === "name" && f.id !== id
+      ? {
+          ...f,
+          kind: "custom",
+          label: "Custom text",
+          ...(f.replacement === "{{name}}" ? { replacement: f.original } : {}),
+        }
+      : f;
+  const promote = (f: CloneTextField): CloneTextField => {
+    const { x, y, w, h } = f;
+    return {
+      ...f,
+      kind: "name",
+      label: "Candidate name",
+      detectionBox: { x, y, w, h },
+      ...(f.replacement === f.original ? { replacement: "{{name}}" } : {}),
+      detection: {
+        source: "manual",
+        rawKind: f.detection?.rawKind ?? f.kind,
+        rawText: f.original,
+        confidence: 100,
+        accepted: true,
+        reason: "chosen by the user",
+      },
+    };
+  };
+  const fields = c.suggestions.some((f) => f.id === id)
+    ? [...c.fields, c.suggestions.find((f) => f.id === id)!]
+    : c.fields;
+  return {
+    clone: {
+      ...c,
+      fields: fields.map((f) => (f.id === id ? promote(f) : demote(f))).sort(byPosition),
+      suggestions: c.suggestions.filter((f) => f.id !== id).map(demote),
+    },
   };
 }
 

@@ -26,7 +26,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import CloneFields, { type PickTarget } from "@/features/certmaker/components/CloneFields";
-import { patchField, removeField, samplePixel } from "@/features/certmaker/lib/clone";
+import {
+  assignCandidateName,
+  patchField,
+  removeField,
+  samplePixel,
+} from "@/features/certmaker/lib/clone";
+import type { DetectView } from "@/features/certmaker/lib/clone-debug";
 import type { CloneEdit } from "@/features/certmaker/components/Preview";
 import Preview from "@/features/certmaker/components/Preview";
 import TemplatePicker from "@/features/certmaker/components/TemplatePicker";
@@ -158,6 +164,8 @@ export default function CertificateMaker() {
       ids.every((id) => live.has(id)) ? ids : ids.filter((id) => live.has(id)),
     );
   }, [d.cloneMode, d.clone]);
+  const [detectView, setDetectView] = useState<DetectView>("off");
+  const [nameMsg, setNameMsg] = useState("");
   const [tab, setTab] = useState<TabId>("templates");
   const [zoom, setZoom] = useState(1);
 
@@ -214,6 +222,21 @@ export default function CertificateMaker() {
   // Clone Mode: every edit (panel or on-canvas) changes the template, never the CSV-filled preview.
   const editClone = (fn: (c: NonNullable<CertData["clone"]>) => NonNullable<CertData["clone"]>) =>
     setD((p) => (p.clone ? { ...p, clone: fn(p.clone) } : p));
+  /** Manual correction: the user clicked the real name. Becomes the one Candidate name field. */
+  const assignName = (id: string) => {
+    const current = d.clone;
+    if (!current) return;
+    const result = assignCandidateName(current, id);
+    if (result.error) {
+      setNameMsg(result.error);
+      return;
+    }
+    editClone((c) => assignCandidateName(c, id).clone);
+    setSelectedIds([id]);
+    setDetectView("off");
+    const text = current.fields.concat(current.suggestions).find((f) => f.id === id)?.original;
+    setNameMsg(`"${text ?? ""}" is now the Candidate name.`);
+  };
   const cloneEdit: CloneEdit | undefined =
     d.cloneMode && d.clone
       ? {
@@ -226,6 +249,8 @@ export default function CertificateMaker() {
             editClone((c) => removeField(c, id));
             setSel(null);
           },
+          detectView,
+          onAssignName: assignName,
           onPixel: pick
             ? (x, y) => {
                 const target = pick;
@@ -681,6 +706,10 @@ export default function CertificateMaker() {
                     headers={ds.headers}
                     picking={pick}
                     onPick={setPick}
+                    detectView={detectView}
+                    onDetectView={setDetectView}
+                    onAssignName={assignName}
+                    nameMessage={nameMsg}
                   />
                 ) : (
                   <p className="text-sm text-muted">Upload an original certificate first.</p>
