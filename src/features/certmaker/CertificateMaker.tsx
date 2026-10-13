@@ -40,6 +40,7 @@ import CloneAiPanel from "./components/CloneAiPanel";
 import { templateLayers, applyTemplateLayers } from "./lib/editing/TemplateAdapter";
 import { SelectionManager } from "./lib/editing/SelectionManager";
 import { useHistory } from "@/features/certmaker/lib/history";
+import { isTextEntry } from "@/features/certmaker/lib/keyboard";
 import { shrinkImage } from "@/features/certmaker/lib/image";
 import {
   batchExport,
@@ -97,17 +98,6 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: "export", label: "Export", icon: Download },
 ];
 
-function isTyping(t: EventTarget | null) {
-  const el = t as HTMLElement | null;
-  return (
-    !!el &&
-    (el.tagName === "INPUT" ||
-      el.tagName === "TEXTAREA" ||
-      el.tagName === "SELECT" ||
-      el.isContentEditable)
-  );
-}
-
 export default function CertificateMaker() {
   const h = useHistory<CertData>(DEFAULT_DATA);
   const d = h.present;
@@ -160,6 +150,14 @@ export default function CertificateMaker() {
     );
     if (id) setTab("content");
   };
+  // Undo/redo can remove a clone field; never keep a selection that points at a field that is gone.
+  useEffect(() => {
+    if (!d.cloneMode || !d.clone) return;
+    const live = new Set(d.clone.fields.map((f) => f.id));
+    setSelectedIds((ids) =>
+      ids.every((id) => live.has(id)) ? ids : ids.filter((id) => live.has(id)),
+    );
+  }, [d.cloneMode, d.clone]);
   const [tab, setTab] = useState<TabId>("templates");
   const [zoom, setZoom] = useState(1);
 
@@ -357,7 +355,7 @@ export default function CertificateMaker() {
   const { undo, redo } = h;
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (isTyping(e.target)) return;
+      if (isTextEntry(e.target)) return;
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       if (mod && k === "z") {
