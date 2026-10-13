@@ -15,7 +15,7 @@ interface Props {
 export default function DetectionDebug({ clone, view, onView, message }: Props) {
   const rows = detectionRows(clone);
   return (
-    <details className="rounded-lg border border-line p-3" open={view !== "off"}>
+    <details className="rounded-lg border border-line p-3">
       <summary className="cursor-pointer text-xs font-semibold text-muted">
         Detection check ({rows.length} regions)
       </summary>

@@ -116,13 +116,25 @@ export class AIEditingEngine {
           case "move":
             patch = { x: field.x + command.dx, y: field.y + command.dy };
             break;
-          case "resize":
+          case "resize": {
+            const w = command.width ?? field.w * (command.scale ?? 1);
+            const h = command.height ?? field.h * (command.scale ?? 1);
             patch = {
-              w: command.width ?? field.w * (command.scale ?? 1),
-              h: command.height ?? field.h * (command.scale ?? 1),
-              ...(command.scale ? { fontSize: field.fontSize * command.scale } : {}),
+              w,
+              h,
+              // "Bigger/smaller" grows around the box centre, so centred text stays centred.
+              ...(command.scale && !command.width && !command.height
+                ? {
+                    fontSize: field.fontSize * command.scale,
+                    x: field.x - (w - field.w) / 2,
+                    y: field.y - (h - field.h) / 2,
+                  }
+                : command.scale
+                  ? { fontSize: field.fontSize * command.scale }
+                  : {}),
             };
             break;
+          }
           case "rotate":
             patch = { rotation: command.degrees };
             break;

@@ -115,6 +115,20 @@ describe("selection-aware editing acceptance", () => {
     expect(h.undo()).toBe(c);
     expect(h.redo()).toBe(deleted.next);
   });
+  it("makes text bigger or smaller around its centre so centred text stays centred", () => {
+    const c = source();
+    const before = c.fields[0]!;
+    for (const phrase of ["make it bigger", "make it smaller"]) {
+      const after = edit(c, phrase).next.fields[0]!;
+      expect(after.x + after.w / 2).toBeCloseTo(before.x + before.w / 2, 0);
+      expect(after.y + after.h / 2).toBeCloseTo(before.y + before.h / 2, 0);
+    }
+    const bigger = edit(c, "make it bigger").next.fields[0]!;
+    expect(bigger.fontSize).toBeCloseTo(before.fontSize * 1.15);
+    // An explicit size keeps the box where the user put it.
+    const sized = edit(c, "resize this to 300x80").next.fields[0]!;
+    expect([sized.x, sized.y]).toEqual([before.x, before.y]);
+  });
   it("aligns several selected layers horizontally and preserves CSV tokens", () => {
     const c = source(),
       p = edit(c, "align horizontally", ["clone-0", "clone-1"]);
