@@ -66,6 +66,8 @@ export interface CloneTextField {
   };
   /** Immutable location of original ink; moving a replacement must erase here. */
   sourceBox?: { x: number; y: number; w: number; h: number };
+  /** Original OCR/PDF/AI text rectangle; fitting cannot grow a detected name outside it. */
+  detectionBox?: { x: number; y: number; w: number; h: number };
   x: number;
   y: number;
   w: number;

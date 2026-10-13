@@ -1,3 +1,4 @@
+import { candidateNameIssue, logDetection } from "./clone-name-validation";
 /**
  * AI detection and consented text-only instruction transport for Clone Mode. Two providers: Google Gemini and Groq.
  *
@@ -446,13 +447,23 @@ export function itemsToFields(
   for (const it of items) {
     const w = ((it.box.x1 - it.box.x0) / 1000) * page.w;
     const h = ((it.box.y1 - it.box.y0) / 1000) * page.h;
-    const kind: CloneKind = it.kind === "other" ? "custom" : it.kind;
-    const editable = it.kind !== "other";
+    const box = { x: (it.box.x0 / 1000) * page.w, y: (it.box.y0 / 1000) * page.h, w, h };
+    const issue = it.kind === "name" ? candidateNameIssue(it.text, box, page) : null;
+    logDetection({
+      text: it.text,
+      kind: it.kind,
+      box,
+      confidence: issue ? 0 : 80,
+      stage: "ai-conversion",
+      reason: issue ?? undefined,
+    });
+    const kind: CloneKind = it.kind === "other" || issue ? "custom" : it.kind;
+    const editable = it.kind !== "other" && !issue;
     if (!editable && suggestions.length >= MAX_SUGGESTIONS) continue;
     const d: Detected = {
       kind,
       label: editable ? KIND_LABEL[kind] : "Other text",
-      box: { x: (it.box.x0 / 1000) * page.w, y: (it.box.y0 / 1000) * page.h, w, h },
+      box,
       text: it.text,
       size: h * 0.85,
       fontHint: `${it.font === "script" ? "script" : it.font === "serif" ? "serif" : "sans"}${it.bold ? " bold" : ""}${it.italic ? " italic" : ""}`,

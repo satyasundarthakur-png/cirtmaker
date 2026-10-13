@@ -109,6 +109,7 @@ export class AIEditingEngine {
               redraw: true,
             };
             delete copy.sourceBox;
+            delete copy.detectionBox;
             next = { ...next, fields: [...next.fields, copy] };
             continue;
           }

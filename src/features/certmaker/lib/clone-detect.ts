@@ -5,6 +5,7 @@
  */
 import { isCentered, type Box } from "./clone-geometry";
 import type { CloneKind } from "./types";
+import { candidateNameIssue, logDetection } from "./clone-name-validation";
 
 /** A fragment of text with its position, as produced by a PDF text layer or OCR. */
 export interface RawItem {
@@ -23,6 +24,8 @@ export interface Word {
   text: string;
   x: number;
   w: number;
+  y?: number;
+  h?: number;
 }
 
 export interface TextLine {
@@ -68,11 +71,17 @@ function splitWords(it: RawItem): Word[] {
   const t = it.text.replace(/\s+/g, " ").trim();
   if (!t) return [];
   const parts = t.split(" ");
-  if (parts.length === 1) return [{ text: t, x: it.x, w: it.w }];
+  if (parts.length === 1) return [{ text: t, x: it.x, w: it.w, y: it.y, h: it.h }];
   const out: Word[] = [];
   let offset = 0;
   for (const part of parts) {
-    out.push({ text: part, x: it.x + it.w * (offset / t.length), w: it.w * (part.length / t.length) });
+    out.push({
+      text: part,
+      x: it.x + it.w * (offset / t.length),
+      w: it.w * (part.length / t.length),
+      y: it.y,
+      h: it.h,
+    });
     offset += part.length + 1;
   }
   return out;
@@ -86,7 +95,13 @@ export function buildLines(items: RawItem[]): TextLine[] {
   for (const it of byY) {
     const row = rows[rows.length - 1];
     const ref = row?.[0];
-    if (row && ref && Math.abs(it.y + it.h / 2 - (ref.y + ref.h / 2)) <= 0.5 * Math.max(ref.h, it.h)) row.push(it);
+    if (
+      row &&
+      ref &&
+      Math.abs(it.y + it.h / 2 - (ref.y + ref.h / 2)) <= 0.35 * Math.min(ref.h, it.h) &&
+      Math.max(ref.h, it.h) <= 1.6 * Math.min(ref.h, it.h)
+    )
+      row.push(it);
     else rows.push([it]);
   }
   const lines: TextLine[] = [];
@@ -129,22 +144,27 @@ function spanBox(line: TextLine, start: number, end: number): Box {
   let offset = 0;
   let x0 = Infinity;
   let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
   for (const w of line.words) {
     const wStart = offset;
     const wEnd = offset + w.text.length;
     if (wEnd > start && wStart < end) {
       x0 = Math.min(x0, w.x);
       x1 = Math.max(x1, w.x + w.w);
+      y0 = Math.min(y0, w.y ?? line.y);
+      y1 = Math.max(y1, (w.y ?? line.y) + (w.h ?? line.h));
     }
     offset = wEnd + 1;
   }
   if (!Number.isFinite(x0)) return { x: line.x, y: line.y, w: line.w, h: line.h };
-  return { x: x0, y: line.y, w: x1 - x0, h: line.h };
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
 /* ---------- patterns ---------- */
 
-const MONTHS = "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
+const MONTHS =
+  "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
 const DATE_RE = new RegExp(
   `\\b(?:\\d{1,2}[/.\\-]\\d{1,2}[/.\\-]\\d{2,4}|\\d{4}[/.\\-]\\d{1,2}[/.\\-]\\d{1,2}|\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?(?:${MONTHS})\\.?,?\\s+\\d{2,4}|(?:${MONTHS})\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{2,4})\\b`,
   "i",
@@ -153,23 +173,38 @@ const ID_RE = /\b[A-Z]{2,8}[-/]\d{2,4}(?:[-/][A-Z0-9]+)*\b|\b[A-Z]{2,8}[-/]?\d{4
 const PLACEHOLDER_RE = /\{\{[^}]+\}\}|\[[^\]]{2,40}\]|<[^>\n]{2,40}>|_{3,}|\.{5,}/;
 
 const LABEL_KINDS: [CloneKind, RegExp][] = [
-  ["certId", /\b(cert(?:ificate)?\.?\s*(?:no|number|id|#)|serial\s*(?:no|number)?|reg(?:istration)?\.?\s*(?:no|number)|ref(?:erence)?\.?\s*(?:no|number)|roll\s*(?:no|number)|id\s*(?:no|number))\b/i],
+  [
+    "certId",
+    /\b(cert(?:ificate)?\.?\s*(?:no|number|id|#)|serial\s*(?:no|number)?|reg(?:istration)?\.?\s*(?:no|number)|ref(?:erence)?\.?\s*(?:no|number)|roll\s*(?:no|number)|id\s*(?:no|number))\b/i,
+  ],
   ["date", /\b(date|dated|issued(?:\s+on)?|issue\s+date|held\s+on)\b/i],
-  ["course", /\b(course|programme|program|workshop|training|conference|seminar|webinar|symposium|event|module)\b/i],
+  [
+    "course",
+    /\b(course|programme|program|workshop|training|conference|seminar|webinar|symposium|event|module)\b/i,
+  ],
   ["name", /\b(candidate|recipient|awardee|participant|student|trainee|delegate|attendee|name)\b/i],
 ];
 
 const PHRASE_PLACEHOLDERS: [CloneKind, RegExp][] = [
-  ["name", /^(?:candidate|recipient|participant|student|trainee|awardee|attendee|delegate)(?:\s+name)?$/i],
+  [
+    "name",
+    /^(?:candidate|recipient|participant|student|trainee|awardee|attendee|delegate)(?:\s+name)?$/i,
+  ],
   ["name", /^name(?:\s+of\s+(?:the\s+)?(?:candidate|recipient|participant|student|trainee))?$/i],
-  ["course", /^(?:course|programme|program|workshop|event|conference|training|seminar)\s*(?:name|title)$/i],
+  [
+    "course",
+    /^(?:course|programme|program|workshop|event|conference|training|seminar)\s*(?:name|title)$/i,
+  ],
   ["date", /^(?:dd|mm|yyyy|d|m|y)[/.-](?:dd|mm|yyyy|m|y)[/.-](?:dd|yy|yyyy)$/i],
 ];
 
-const NAME_CUE = /\b(?:presented to|awarded to|is awarded to|is hereby awarded to|hereby awarded to|proudly presented to|is presented to|given to|granted to|conferred (?:up)?on|certif(?:y|ies) that|certified that)\s*[:,]?\s*$/i;
-const COURSE_CUE = /\b(?:completed|completing|completion of|participation in|participated in|attended|attending|enrolled in|undergone|undergoing|on the topic|titled|entitled)\s*(?:the|in|a|an)?\s*[:,]?\s*$/i;
+const NAME_CUE =
+  /\b(?:presented to|awarded to|is awarded to|is hereby awarded to|hereby awarded to|proudly presented to|is presented to|given to|granted to|conferred (?:up)?on|certif(?:y|ies) that|certified that)\s*[:,]?\s*$/i;
+const COURSE_CUE =
+  /\b(?:completed|completing|completion of|participation in|participated in|attended|attending|enrolled in|undergone|undergoing|on the topic|titled|entitled)\s*(?:the|in|a|an)?\s*[:,]?\s*$/i;
 
-const NOT_A_NAME = /\b(certificate|achievement|appreciation|completion|participation|excellence|award|awarded|merit|presented|proudly|certify|certifies|hereby|this is|has|for|in recognition|successfully|date|signature|director|principal|president|chairman|secretary)\b/i;
+const NOT_A_NAME =
+  /\b(certificate|achievement|appreciation|completion|participation|excellence|award|awarded|merit|presented|proudly|certify|certifies|hereby|this is|has|for|in recognition|successfully|date|signature|director|principal|president|chairman|secretary)\b/i;
 
 const countAlnum = (s: string) => (s.match(/[\p{L}\p{N}]/gu) ?? []).length;
 
@@ -187,13 +222,51 @@ function kindFromWords(text: string): CloneKind {
 export function detectFields(lines: TextLine[], page: { w: number; h: number }): Detection {
   const fields: Detected[] = [];
   const handled = new Set<TextLine>();
+  const residuals: TextLine[] = [];
   let cue: { kind: CloneKind; line: TextLine } | null = null;
 
-  const add = (line: TextLine, kind: CloneKind, span: { start: number; end: number } | null, label?: string, guess = false) => {
-    const box = span ? spanBox(line, span.start, span.end) : { x: line.x, y: line.y, w: line.w, h: line.h };
+  const add = (
+    line: TextLine,
+    kind: CloneKind,
+    span: { start: number; end: number } | null,
+    label?: string,
+    guess = false,
+  ) => {
+    const box = span
+      ? spanBox(line, span.start, span.end)
+      : { x: line.x, y: line.y, w: line.w, h: line.h };
     const text = span ? line.text.slice(span.start, span.end) : line.text;
-    fields.push({ kind, label: label ?? KIND_LABEL[kind], box, text, size: line.size, fontHint: line.fontHint, ...(guess ? { guess } : {}) });
+    const issue = kind === "name" ? candidateNameIssue(text, box, page) : null;
+    logDetection({
+      text,
+      kind,
+      box,
+      confidence: issue ? 0 : guess ? 55 : 90,
+      stage: "classification",
+      reason: issue ?? undefined,
+    });
+    if (issue) return false;
+    if (span)
+      for (const [start, end] of [
+        [0, span.start],
+        [span.end, line.text.length],
+      ] as const) {
+        const remaining = line.text.slice(start, end).trim();
+        if (countAlnum(remaining) < 2) continue;
+        const rect = spanBox(line, start, end);
+        residuals.push({ ...line, ...rect, text: remaining, words: [] });
+      }
+    fields.push({
+      kind,
+      label: label ?? KIND_LABEL[kind],
+      box,
+      text,
+      size: line.size,
+      fontHint: line.fontHint,
+      ...(guess ? { guess } : {}),
+    });
     handled.add(line);
+    return true;
   };
 
   for (const line of lines) {
@@ -210,17 +283,20 @@ export function detectFields(lines: TextLine[], page: { w: number; h: number }):
       if (kind) {
         const valueStart = text.indexOf(lv[2], lv[1].length);
         let span = { start: valueStart, end: text.length };
-        const narrow = kind === "date" ? DATE_RE.exec(lv[2]) : kind === "certId" ? ID_RE.exec(lv[2]) : null;
-        if (narrow) span = { start: valueStart + narrow.index, end: valueStart + narrow.index + narrow[0].length };
-        add(line, kind, span);
-        done = true;
+        const narrow =
+          kind === "date" ? DATE_RE.exec(lv[2]) : kind === "certId" ? ID_RE.exec(lv[2]) : null;
+        if (narrow)
+          span = {
+            start: valueStart + narrow.index,
+            end: valueStart + narrow.index + narrow[0].length,
+          };
+        done = add(line, kind, span);
       }
     }
 
     // 2. the line right after "presented to" / "has successfully completed"
     if (!done && activeCue && /\p{L}/u.test(text)) {
-      add(line, activeCue.kind, null);
-      done = true;
+      done = add(line, activeCue.kind, null);
     }
 
     // 3. placeholders: {{name}}, [Candidate Name], ______, "Candidate Name", "DD/MM/YYYY"
@@ -233,7 +309,12 @@ export function detectFields(lines: TextLine[], page: { w: number; h: number }):
         const ph = PLACEHOLDER_RE.exec(text);
         if (ph && (text.length <= 50 || ph[0].length === text.length)) {
           const kind = kindFromWords(ph[0]);
-          add(line, kind, { start: ph.index, end: ph.index + ph[0].length }, kind === "custom" ? ph[0].slice(0, 24) : undefined);
+          add(
+            line,
+            kind,
+            { start: ph.index, end: ph.index + ph[0].length },
+            kind === "custom" ? ph[0].slice(0, 24) : undefined,
+          );
           done = true;
         }
       }
@@ -271,15 +352,22 @@ export function detectFields(lines: TextLine[], page: { w: number; h: number }):
         if (handled.has(l)) return false;
         const words = l.words.length;
         return (
-          words >= 1 && words <= 5 && countAlnum(l.text) >= 3 && !/\d/.test(l.text) && !NOT_A_NAME.test(l.text) &&
-          isCentered({ x: l.x, y: l.y, w: l.w, h: l.h }, page.w) && l.y >= page.h * 0.25 && l.y <= page.h * 0.72 && l.size >= median * 1.2
+          words >= 1 &&
+          words <= 5 &&
+          countAlnum(l.text) >= 3 &&
+          !/\d/.test(l.text) &&
+          !NOT_A_NAME.test(l.text) &&
+          isCentered({ x: l.x, y: l.y, w: l.w, h: l.h }, page.w) &&
+          l.y >= page.h * 0.25 &&
+          l.y <= page.h * 0.72 &&
+          l.size >= median * 1.2
         );
       })
       .sort((a, b) => b.size - a.size)[0];
     if (guess) add(guess, "name", null, "Candidate name (guess)", true);
   }
 
-  const rest = lines.filter((l) => !handled.has(l) && countAlnum(l.text) >= 2);
+  const rest = [...lines.filter((l) => !handled.has(l) && countAlnum(l.text) >= 2), ...residuals];
   fields.sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x);
   return { fields, rest };
 }

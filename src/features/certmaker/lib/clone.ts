@@ -1,3 +1,4 @@
+import { candidateNameIssue, logDetection } from "./clone-name-validation";
 import { buildLines, detectFields, type Detected, type RawItem } from "./clone-detect";
 import { clampBox, clonePageMm, isCentered } from "./clone-geometry";
 import { fitFieldsToInk, type ErasePatch } from "./clone-erase-canvas";
@@ -301,6 +302,9 @@ export function fieldFromDetected(
   id: string,
   page: { w: number; h: number },
 ): CloneTextField {
+  const issue = d.kind === "name" ? candidateNameIssue(d.text, d.box, page) : null;
+  if (issue)
+    throw new Error(`Unsafe Candidate name detection: ${issue}. Select the actual name manually.`);
   const size = Math.max(8, d.size);
   const padX = Math.max(3, size * 0.15);
   const padY = Math.max(2, size * 0.12);
@@ -309,12 +313,14 @@ export function fieldFromDetected(
     page,
   );
   const text = d.text.trim();
+  logDetection({ text, kind: d.kind, box, confidence: d.guess ? 55 : 90, stage: "clone-creation" });
   return {
     id,
     kind: d.kind,
     label: d.label,
     original: text,
     replacement: text,
+    ...(d.kind === "name" ? { detectionBox: { ...d.box } } : {}),
     ...box,
     fontSize: Math.round(size * 10) / 10,
     ...styleFromHint(d.fontHint),

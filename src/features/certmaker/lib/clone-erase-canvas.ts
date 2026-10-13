@@ -1,3 +1,4 @@
+import { candidateNameIssue, logDetection } from "./clone-name-validation";
 import { authorizedText } from "./editing/SelectionManager";
 import { loadCloneImage } from "./clone-image";
 import { analyseInk, fitToInk, windowFor, type InkAnalysis, type Pixels } from "./clone-erase";
@@ -109,8 +110,50 @@ export async function fitFieldsToInk(clone: CloneSource, only?: string): Promise
   const fields = clone.fields.map((f) => {
     if ((only && f.id !== only) || !authorizedText(f)) return f;
     if (!f.original.trim()) return f; // a box added by hand has no old writing to fit
-    const fit = fitToInk(analyse(img, { x: f.x, y: f.y, w: f.w, h: f.h }, protect, true), f, size);
-    return fit ? { ...f, ...fit } : f;
+    const anchor = f.detectionBox ?? f.sourceBox ?? f;
+    if (f.kind === "name") {
+      const issue = candidateNameIssue(f.original, anchor, { w: clone.width, h: clone.height });
+      if (issue) {
+        logDetection({
+          text: f.original,
+          kind: f.kind,
+          box: anchor,
+          confidence: 0,
+          stage: "ink-fit",
+          reason: issue,
+        });
+        return {
+          ...f,
+          kind: "custom" as const,
+          label: "Rejected name region (protected)",
+          locked: true,
+          replacement: f.original,
+          redraw: false,
+        };
+      }
+      if (f.sourceBox) return f; // never refit moved/edited text against another source location
+    }
+    const analysis = analyse(img, anchor, protect, f.kind !== "name");
+    const fit = fitToInk(analysis, f, size);
+    if (!fit) return f;
+    if (f.kind === "name" && analysis.inkBox) {
+      const ink = analysis.inkBox;
+      const pad = Math.max(1, Math.min(3, anchor.h * 0.05));
+      const x = Math.max(anchor.x, ink.x - pad),
+        y = Math.max(anchor.y, ink.y - pad);
+      const right = Math.min(anchor.x + anchor.w, ink.x + ink.w + pad);
+      const bottom = Math.min(anchor.y + anchor.h, ink.y + ink.h + pad);
+      if (right <= x || bottom <= y) return f;
+      Object.assign(fit, { x, y, w: right - x, h: bottom - y });
+      logDetection({
+        text: f.original,
+        kind: f.kind,
+        box: { x, y, w: right - x, h: bottom - y },
+        confidence: 90,
+        stage: "ink-fit",
+      });
+    }
+    return { ...f, ...fit };
   });
   return { ...clone, fields };
 }
