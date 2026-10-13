@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import CloneAiPanel from "./CloneAiPanel";
-import CloneInstructions from "./CloneInstructions";
 import DetectionDebug from "./DetectionDebug";
 import { authorizedText } from "../lib/editing/SelectionManager";
 import type { DetectView } from "../lib/clone-debug";
@@ -188,13 +187,6 @@ export default function CloneFields({
         selectedIds={selectedIds}
         variables={variables}
         headers={headers}
-        edit={edit}
-        onSelect={onSelect}
-      />
-      <CloneInstructions
-        clone={clone}
-        selected={selected}
-        variables={variables}
         edit={edit}
         onSelect={onSelect}
       />

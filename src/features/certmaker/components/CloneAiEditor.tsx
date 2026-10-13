@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import Preview from "./Preview";
 import { DEFAULT_DATA, type CertData, type CloneSource } from "../lib/types";
 import { PROVIDERS, type AiProvider } from "../lib/clone-ai";
+import { checkClone } from "../lib/clone-check";
 import { AIEditingEngine } from "../lib/editing/AIEditingEngine";
 import { SelectionManager, authorizedText } from "../lib/editing/SelectionManager";
 import { StyleMatchEngine } from "../lib/editing/StyleMatchEngine";
@@ -352,6 +353,21 @@ export default function CloneAiEditor({
               {label}
             </Button>
           ))}
+          <Button
+            variant="certificate"
+            size="certificate"
+            disabled={busy}
+            onClick={() => {
+              const issues = checkClone(clone);
+              setMessage(
+                issues.length
+                  ? issues.join("\n")
+                  : "Layout check passed: no out-of-page boxes, overlaps or unerased replacement text found.",
+              );
+            }}
+          >
+            Check layout
+          </Button>
           {selectedFields.some((f) => f.locked) && (
             <Button variant="certificate" size="certificate" onClick={unlock}>
               Preview manual unlock
