@@ -256,7 +256,7 @@ function seal(c: Ctx, cx: number, cy: number, accent: Paint, bg: string, text: s
 }
 
 /** Make sure every font used by this certificate is loaded before drawing. */
-export async function ensureFonts(d: CertData) {
+async function ensureFonts(d: CertData) {
   const f = FONT_SETS[d.fontSet].stack;
   const jobs = [
     [`${f.titleWeight} 40px ${f.title}`, d.title],
@@ -332,7 +332,7 @@ async function drawClone(
 }
 
 /** Draw the whole certificate into `canvas` at the given pixel width. Fonts must already be loaded. */
-export async function drawCertificate(
+async function drawCertificate(
   canvas: HTMLCanvasElement,
   d: CertData,
   widthPx: number,

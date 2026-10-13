@@ -24,20 +24,7 @@ export function makeRng(seed: string) {
     next,
     range: (lo: number, hi: number) => lo + next() * (hi - lo),
     int: (lo: number, hi: number) => Math.floor(lo + next() * (hi - lo + 1)),
-    pick: <T,>(arr: T[]) => arr[Math.floor(next() * arr.length)],
+    pick: <T>(arr: T[]) => arr[Math.floor(next() * arr.length)],
     bool: (p = 0.5) => next() < p,
   };
-}
-
-export function shuffle<T>(arr: T[], seed: string): T[] {
-  const r = makeRng(seed);
-  const out = [...arr];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(r.next() * (i + 1));
-    const a = out[i], b = out[j];
-    if (a === undefined || b === undefined) continue;
-    out[i] = b;
-    out[j] = a;
-  }
-  return out;
 }

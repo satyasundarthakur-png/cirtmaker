@@ -29,7 +29,13 @@ export interface VerifySettings {
   verifyEmbed: boolean;
 }
 
-export const recordOf = (d: CertData): VerifyRecord => ({ id: d.certId, name: d.recipient, title: d.title, org: d.org, date: d.date });
+const recordOf = (d: CertData): VerifyRecord => ({
+  id: d.certId,
+  name: d.recipient,
+  title: d.title,
+  org: d.org,
+  date: d.date,
+});
 
 const b64u = {
   enc(s: string) {
@@ -70,7 +76,7 @@ export async function checksum(r: VerifyRecord): Promise<string> {
     .join("");
 }
 
-export function baseUrl(s: Pick<VerifySettings, "verifyBase">): string {
+function baseUrl(s: Pick<VerifySettings, "verifyBase">): string {
   const raw = s.verifyBase.trim().replace(/\/+$/, "");
   if (raw) return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   const origin = typeof window !== "undefined" ? window.location.origin : "https://example.com";
@@ -111,7 +117,9 @@ const REG_MAX = 5000;
 export function loadRegister(): Issued[] {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(REG_KEY) ?? "[]");
-    return Array.isArray(v) ? (v as Issued[]).filter((x) => !!x && typeof x === "object" && typeof x.id === "string") : [];
+    return Array.isArray(v)
+      ? (v as Issued[]).filter((x) => !!x && typeof x === "object" && typeof x.id === "string")
+      : [];
   } catch {
     return [];
   }

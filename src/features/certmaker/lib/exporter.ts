@@ -5,7 +5,6 @@ import { renderToCanvas } from "./render";
 
 const EXPORT_W = 2339; // ≈200 dpi on A4
 
-export { fileSafe, nextId } from "./exporter-utils";
 import { EXT, fileSafe, pixelWidth, svgWrap, type ExportProfile } from "./exporter-utils";
 
 /** Clone Mode exports at the original's own pixel size so the artwork is never resampled. */
@@ -59,16 +58,6 @@ function addPageImage(
   if (d.cloneMode && quality >= 0.95)
     pdf.addImage(dataUrl(c, "image/png"), "PNG", 0, 0, w, h, undefined, "FAST");
   else pdf.addImage(dataUrl(c, "image/jpeg", quality), "JPEG", 0, 0, w, h);
-}
-
-export async function pdfBlob(d: CertData): Promise<Blob> {
-  const { pdf, w, h } = await newPdf(d);
-  addPageImage(pdf, await canvasFor(d), d, 0.93, w, h);
-  return pdf.output("blob");
-}
-
-export async function pngBlob(d: CertData): Promise<Blob> {
-  return toBlob(await canvasFor(d), "image/png");
 }
 
 /** Render one certificate using an export profile (format, dpi, quality). */

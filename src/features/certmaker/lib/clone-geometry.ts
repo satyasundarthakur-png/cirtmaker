@@ -1,4 +1,5 @@
 /** Pure geometry helpers for Clone Mode. All units are pixels of the original image. */
+import { clamp } from "./util";
 
 export interface Box {
   x: number;
@@ -11,18 +12,28 @@ export type Handle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
 export const MIN_BOX = 8;
 
-const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 const round = (n: number) => Math.round(n * 10) / 10;
 
 /** Keep a box inside the image and at least MIN_BOX in each direction. */
 export function clampBox(b: Box, bounds: { w: number; h: number }): Box {
   const w = clamp(b.w, MIN_BOX, bounds.w);
   const h = clamp(b.h, MIN_BOX, bounds.h);
-  return { x: round(clamp(b.x, 0, bounds.w - w)), y: round(clamp(b.y, 0, bounds.h - h)), w: round(w), h: round(h) };
+  return {
+    x: round(clamp(b.x, 0, bounds.w - w)),
+    y: round(clamp(b.y, 0, bounds.h - h)),
+    w: round(w),
+    h: round(h),
+  };
 }
 
 /** Result of dragging a box (or one of its handles) by dx, dy from where the drag started. */
-export function dragBox(start: Box, handle: Handle, dx: number, dy: number, bounds: { w: number; h: number }): Box {
+export function dragBox(
+  start: Box,
+  handle: Handle,
+  dx: number,
+  dy: number,
+  bounds: { w: number; h: number },
+): Box {
   if (handle === "move") return clampBox({ ...start, x: start.x + dx, y: start.y + dy }, bounds);
   let left = start.x;
   let right = start.x + start.w;

@@ -12,6 +12,7 @@
  * It only ever changes pixels near the field's own box. It never creates artwork.
  */
 import { clampBox, type Box } from "./clone-geometry";
+import { hex } from "./util";
 import type { CloneTextField } from "./types";
 
 export interface Pixels {
@@ -91,7 +92,17 @@ interface Component {
   protectedShape: boolean;
 }
 
-const empty = (win: Box, n: number): InkAnalysis => ({ window: win, mask: new Uint8Array(n), fill: new Uint8ClampedArray(n * 4), inkBox: null, strokePx: 0, bodyH: 0, inkColor: null, paper: 255, selected: 0 });
+const empty = (win: Box, n: number): InkAnalysis => ({
+  window: win,
+  mask: new Uint8Array(n),
+  fill: new Uint8ClampedArray(n * 4),
+  inkBox: null,
+  strokePx: 0,
+  bodyH: 0,
+  inkColor: null,
+  paper: 255,
+  selected: 0,
+});
 
 function median(values: number[]): number {
   if (!values.length) return 0;
@@ -105,7 +116,8 @@ function dilate(src: Uint8Array, w: number, h: number, r: number): Uint8Array {
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       let hit = 0;
-      for (let k = Math.max(0, x - r); k <= Math.min(w - 1, x + r) && !hit; k++) hit = src[y * w + k] ?? 0;
+      for (let k = Math.max(0, x - r); k <= Math.min(w - 1, x + r) && !hit; k++)
+        hit = src[y * w + k] ?? 0;
       tmp[y * w + x] = hit;
     }
   }
@@ -113,7 +125,8 @@ function dilate(src: Uint8Array, w: number, h: number, r: number): Uint8Array {
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       let hit = 0;
-      for (let k = Math.max(0, y - r); k <= Math.min(h - 1, y + r) && !hit; k++) hit = tmp[k * w + x] ?? 0;
+      for (let k = Math.max(0, y - r); k <= Math.min(h - 1, y + r) && !hit; k++)
+        hit = tmp[k * w + x] ?? 0;
       out[y * w + x] = hit;
     }
   }
@@ -135,7 +148,9 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
   const lum = new Uint8Array(n);
   const hist = new Uint32Array(256);
   for (let i = 0; i < n; i++) {
-    const v = Math.round(0.299 * (d[i * 4] ?? 0) + 0.587 * (d[i * 4 + 1] ?? 0) + 0.114 * (d[i * 4 + 2] ?? 0));
+    const v = Math.round(
+      0.299 * (d[i * 4] ?? 0) + 0.587 * (d[i * 4 + 1] ?? 0) + 0.114 * (d[i * 4 + 2] ?? 0),
+    );
     lum[i] = v;
     hist[v] = (hist[v] ?? 0) + 1;
   }
@@ -143,7 +158,10 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
   let paper = 255;
   for (let v = 0; v < 256; v++) {
     acc += hist[v] ?? 0;
-    if (acc >= n * 0.85) { paper = v; break; }
+    if (acc >= n * 0.85) {
+      paper = v;
+      break;
+    }
   }
   // dark pages (light text on dark paper) are not supported: leave them alone
   if (paper < MIN_PAPER) return { ...empty(win, n), paper };
@@ -174,7 +192,18 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
   for (let start = 0; start < n; start++) {
     if (!strong[start] || label[start]) continue;
     const id = comps.length + 1;
-    const c: Component = { area: 0, minX: w, maxX: 0, minY: h, maxY: 0, inBox: 0, inProtect: 0, perimeter: 0, pixels: [], protectedShape: false };
+    const c: Component = {
+      area: 0,
+      minX: w,
+      maxX: 0,
+      minY: h,
+      maxY: 0,
+      inBox: 0,
+      inProtect: 0,
+      perimeter: 0,
+      pixels: [],
+      protectedShape: false,
+    };
     let top = 0;
     stack[top++] = start;
     label[start] = id;
@@ -190,14 +219,27 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
       if (y > c.maxY) c.maxY = y;
       if (inBoxAt(x, y)) c.inBox++;
       if (protectMask[p]) c.inProtect++;
-      if (x === 0 || y === 0 || x === w - 1 || y === h - 1 || !strong[p - 1] || !strong[p + 1] || !strong[p - w] || !strong[p + w]) c.perimeter++;
+      if (
+        x === 0 ||
+        y === 0 ||
+        x === w - 1 ||
+        y === h - 1 ||
+        !strong[p - 1] ||
+        !strong[p + 1] ||
+        !strong[p - w] ||
+        !strong[p + w]
+      )
+        c.perimeter++;
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           const nx = x + dx;
           const ny = y + dy;
           if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
           const q = ny * w + nx;
-          if (strong[q] && !label[q]) { label[q] = id; stack[top++] = q; }
+          if (strong[q] && !label[q]) {
+            label[q] = id;
+            stack[top++] = q;
+          }
         }
       }
     }
@@ -211,8 +253,10 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
   for (const c of comps) {
     const bw = c.maxX - c.minX + 1;
     const bh = c.maxY - c.minY + 1;
-    if (bw >= 10 * bh && bw >= 40 * s) c.protectedShape = true; // a solid rule
-    else if (c.area <= dotArea && bw <= dotSide && bh <= dotSide) dots.push({ c, cy: (c.minY + c.maxY) / 2 });
+    if (bw >= 10 * bh && bw >= 40 * s)
+      c.protectedShape = true; // a solid rule
+    else if (c.area <= dotArea && bw <= dotSide && bh <= dotSide)
+      dots.push({ c, cy: (c.minY + c.maxY) / 2 });
   }
   dots.sort((a, b) => a.cy - b.cy);
   const tol = 2.2 * s;
@@ -220,8 +264,12 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
   while (i < dots.length) {
     let j = i + 1;
     let sum = (dots[i] as { cy: number }).cy;
-    while (j < dots.length && Math.abs((dots[j] as { cy: number }).cy - sum / (j - i)) <= tol) { sum += (dots[j] as { cy: number }).cy; j++; }
-    if (j - i >= MIN_LEADER_DOTS) for (let k = i; k < j; k++) (dots[k] as { c: Component }).c.protectedShape = true; // a dotted leader line
+    while (j < dots.length && Math.abs((dots[j] as { cy: number }).cy - sum / (j - i)) <= tol) {
+      sum += (dots[j] as { cy: number }).cy;
+      j++;
+    }
+    if (j - i >= MIN_LEADER_DOTS)
+      for (let k = i; k < j; k++) (dots[k] as { c: Component }).c.protectedShape = true; // a dotted leader line
     i = j;
   }
 
@@ -238,18 +286,26 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
       // fitting: also take writing that lies within the box's width and only a little above or below it,
       // which is what a box placed a few pixels off looks like
       const compW = c.maxX - c.minX + 1;
-      const overlapX = Math.min(c.maxX + win.x + 1, o.box.x + o.box.w) - Math.max(c.minX + win.x, o.box.x);
-      const nearY = cy + win.y + 0.5 >= o.box.y - reach && cy + win.y + 0.5 <= o.box.y + o.box.h + reach;
+      const overlapX =
+        Math.min(c.maxX + win.x + 1, o.box.x + o.box.w) - Math.max(c.minX + win.x, o.box.x);
+      const nearY =
+        cy + win.y + 0.5 >= o.box.y - reach && cy + win.y + 0.5 <= o.box.y + o.box.h + reach;
       if (boxFrac >= 0.25 || centreIn || (overlapX >= 0.5 * compW && nearY)) selectedComps.push(c);
     } else if (boxFrac >= 0.5 || centreIn) selectedComps.push(c);
   }
   if (!selectedComps.length) return { ...empty(win, n), paper };
 
   const sel = new Uint8Array(n);
-  let ix0 = Infinity, iy0 = Infinity, ix1 = -Infinity, iy1 = -Infinity;
+  let ix0 = Infinity,
+    iy0 = Infinity,
+    ix1 = -Infinity,
+    iy1 = -Infinity;
   for (const c of selectedComps) {
     for (const p of c.pixels) sel[p] = 1;
-    ix0 = Math.min(ix0, c.minX); iy0 = Math.min(iy0, c.minY); ix1 = Math.max(ix1, c.maxX); iy1 = Math.max(iy1, c.maxY);
+    ix0 = Math.min(ix0, c.minX);
+    iy0 = Math.min(iy0, c.minY);
+    ix1 = Math.max(ix1, c.maxX);
+    iy1 = Math.max(iy1, c.maxY);
   }
 
   // remove the shapes plus their soft edge, but never protected shapes or static text
@@ -266,8 +322,15 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
   for (let p = 0; p < n; p++) {
     if (mask[p] || (lum[p] ?? 0) < paper - PAPER_LIKE_DROP) continue;
     known[p] = 1;
-    fill[p * 4] = d[p * 4] ?? 0; fill[p * 4 + 1] = d[p * 4 + 1] ?? 0; fill[p * 4 + 2] = d[p * 4 + 2] ?? 0; fill[p * 4 + 3] = 255;
-    if (p % 7 === 0) { (paperSamples[0] as number[]).push(d[p * 4] ?? 0); (paperSamples[1] as number[]).push(d[p * 4 + 1] ?? 0); (paperSamples[2] as number[]).push(d[p * 4 + 2] ?? 0); }
+    fill[p * 4] = d[p * 4] ?? 0;
+    fill[p * 4 + 1] = d[p * 4 + 1] ?? 0;
+    fill[p * 4 + 2] = d[p * 4 + 2] ?? 0;
+    fill[p * 4 + 3] = 255;
+    if (p % 7 === 0) {
+      (paperSamples[0] as number[]).push(d[p * 4] ?? 0);
+      (paperSamples[1] as number[]).push(d[p * 4 + 1] ?? 0);
+      (paperSamples[2] as number[]).push(d[p * 4 + 2] ?? 0);
+    }
   }
   for (let pass = 0; pass < FILL_PASSES; pass++) {
     const newly: number[] = [];
@@ -276,7 +339,10 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
       if (!mask[p] || known[p]) continue;
       const x = p % w;
       const y = (p - x) / w;
-      let r = 0, g = 0, b = 0, cnt = 0;
+      let r = 0,
+        g = 0,
+        b = 0,
+        cnt = 0;
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           const nx = x + dx;
@@ -284,46 +350,97 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
           if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
           const q = ny * w + nx;
           if (!known[q]) continue;
-          r += fill[q * 4] ?? 0; g += fill[q * 4 + 1] ?? 0; b += fill[q * 4 + 2] ?? 0; cnt++;
+          r += fill[q * 4] ?? 0;
+          g += fill[q * 4 + 1] ?? 0;
+          b += fill[q * 4 + 2] ?? 0;
+          cnt++;
         }
       }
-      if (cnt) { newly.push(p); colours.push(r / cnt, g / cnt, b / cnt); }
+      if (cnt) {
+        newly.push(p);
+        colours.push(r / cnt, g / cnt, b / cnt);
+      }
     }
     if (!newly.length) break;
     newly.forEach((p, k) => {
-      fill[p * 4] = colours[k * 3] ?? 255; fill[p * 4 + 1] = colours[k * 3 + 1] ?? 255; fill[p * 4 + 2] = colours[k * 3 + 2] ?? 255; fill[p * 4 + 3] = 255;
+      fill[p * 4] = colours[k * 3] ?? 255;
+      fill[p * 4 + 1] = colours[k * 3 + 1] ?? 255;
+      fill[p * 4 + 2] = colours[k * 3 + 2] ?? 255;
+      fill[p * 4 + 3] = 255;
       known[p] = 1;
     });
   }
-  const fallback = [median(paperSamples[0] as number[]) || 255, median(paperSamples[1] as number[]) || 255, median(paperSamples[2] as number[]) || 255];
+  const fallback = [
+    median(paperSamples[0] as number[]) || 255,
+    median(paperSamples[1] as number[]) || 255,
+    median(paperSamples[2] as number[]) || 255,
+  ];
   for (let p = 0; p < n; p++) {
-    if (mask[p] && !known[p]) { fill[p * 4] = fallback[0] ?? 255; fill[p * 4 + 1] = fallback[1] ?? 255; fill[p * 4 + 2] = fallback[2] ?? 255; fill[p * 4 + 3] = 255; }
+    if (mask[p] && !known[p]) {
+      fill[p * 4] = fallback[0] ?? 255;
+      fill[p * 4 + 1] = fallback[1] ?? 255;
+      fill[p * 4 + 2] = fallback[2] ?? 255;
+      fill[p * 4 + 3] = 255;
+    }
   }
 
   // what the old text looked like: stroke thickness (weighted by size) and its dark ink colour
-  const strokes = selectedComps.map((c) => ({ v: (2 * c.area) / Math.max(1, c.perimeter), a: c.area })).sort((a, b) => a.v - b.v);
+  const strokes = selectedComps
+    .map((c) => ({ v: (2 * c.area) / Math.max(1, c.perimeter), a: c.area }))
+    .sort((a, b) => a.v - b.v);
   const half = strokes.reduce((t, x) => t + x.a, 0) / 2;
   let run = 0;
   let strokePx = strokes[strokes.length - 1]?.v ?? 0;
-  for (const x of strokes) { run += x.a; if (run >= half) { strokePx = x.v; break; } }
+  for (const x of strokes) {
+    run += x.a;
+    if (run >= half) {
+      strokePx = x.v;
+      break;
+    }
+  }
   const rowMass = new Float64Array(h);
-  for (const c of selectedComps) for (const p of c.pixels) rowMass[Math.floor(p / w)] = (rowMass[Math.floor(p / w)] ?? 0) + 1;
+  for (const c of selectedComps)
+    for (const p of c.pixels) rowMass[Math.floor(p / w)] = (rowMass[Math.floor(p / w)] ?? 0) + 1;
   const totalMass = selectedComps.reduce((t, c) => t + c.area, 0);
-  let lo = 0, hi = h - 1, seen = 0;
-  for (let y = 0; y < h; y++) { seen += rowMass[y] ?? 0; if (seen >= totalMass * 0.025) { lo = y; break; } }
+  let lo = 0,
+    hi = h - 1,
+    seen = 0;
+  for (let y = 0; y < h; y++) {
+    seen += rowMass[y] ?? 0;
+    if (seen >= totalMass * 0.025) {
+      lo = y;
+      break;
+    }
+  }
   seen = 0;
-  for (let y = h - 1; y >= 0; y--) { seen += rowMass[y] ?? 0; if (seen >= totalMass * 0.025) { hi = y; break; } }
+  for (let y = h - 1; y >= 0; y--) {
+    seen += rowMass[y] ?? 0;
+    if (seen >= totalMass * 0.025) {
+      hi = y;
+      break;
+    }
+  }
   const bodyH = Math.max(1, hi - lo + 1);
   const core: number[] = [];
   const coreLimit = paper - 110;
-  const stride = Math.max(1, Math.floor(selectedComps.reduce((t, c) => t + c.area, 0) / MAX_COLOR_SAMPLES));
+  const stride = Math.max(
+    1,
+    Math.floor(selectedComps.reduce((t, c) => t + c.area, 0) / MAX_COLOR_SAMPLES),
+  );
   let k = 0;
-  const rs: number[] = [], gs: number[] = [], bs: number[] = [];
-  for (const c of selectedComps) for (const p of c.pixels) {
-    if ((k++ % stride) || (lum[p] ?? 255) >= coreLimit) continue;
-    rs.push(d[p * 4] ?? 0); gs.push(d[p * 4 + 1] ?? 0); bs.push(d[p * 4 + 2] ?? 0); core.push(p);
-  }
-  const inkColor: [number, number, number] | null = core.length >= 20 ? [median(rs), median(gs), median(bs)] : null;
+  const rs: number[] = [],
+    gs: number[] = [],
+    bs: number[] = [];
+  for (const c of selectedComps)
+    for (const p of c.pixels) {
+      if (k++ % stride || (lum[p] ?? 255) >= coreLimit) continue;
+      rs.push(d[p * 4] ?? 0);
+      gs.push(d[p * 4 + 1] ?? 0);
+      bs.push(d[p * 4 + 2] ?? 0);
+      core.push(p);
+    }
+  const inkColor: [number, number, number] | null =
+    core.length >= 20 ? [median(rs), median(gs), median(bs)] : null;
 
   return {
     window: win,
@@ -340,7 +457,6 @@ export function analyseInk(pixels: Pixels, win: Box, o: InkOptions): InkAnalysis
 
 /* ---------- fitting a field to its writing ---------- */
 
-const hex2 = (n: number) => Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, "0");
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
 /**
@@ -349,7 +465,11 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
  * that thin fonts do not look faint next to heavy handwriting.
  * Returns null when no old text was found in the box.
  */
-export function fitToInk(a: InkAnalysis, f: Pick<CloneTextField, "x" | "y" | "w" | "h" | "fontSize">, image: { width: number; height: number }): Partial<CloneTextField> | null {
+export function fitToInk(
+  a: InkAnalysis,
+  f: Pick<CloneTextField, "x" | "y" | "w" | "h" | "fontSize">,
+  image: { width: number; height: number },
+): Partial<CloneTextField> | null {
   if (!a.inkBox || a.selected === 0) return null;
   const s = scaleOf(image.width);
   const ink = a.inkBox;
@@ -360,12 +480,15 @@ export function fitToInk(a: InkAnalysis, f: Pick<CloneTextField, "x" | "y" | "w"
   const y0 = Math.max(Math.min(f.y, ink.y - margin), f.y - maxDy);
   const x1 = Math.min(Math.max(f.x + f.w, ink.x + ink.w + margin), f.x + f.w + maxDx);
   const y1 = Math.min(Math.max(f.y + f.h, ink.y + ink.h + margin), f.y + f.h + maxDy);
-  const box = clampBox({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, { w: image.width, h: image.height });
+  const box = clampBox(
+    { x: x0, y: y0, w: x1 - x0, h: y1 - y0 },
+    { w: image.width, h: image.height },
+  );
   // text size from the body of the old writing (not its longest tail); never smaller than the size already known
   const fontSize = round1(Math.min(Math.max(f.fontSize, 1.1 * a.bodyH), 1.4 * box.h));
   // the stroke thickness to match; the painter only adds thickness if the chosen font is thinner than this
   const weight = a.strokePx >= 1.8 * s ? round1(Math.min(a.strokePx, 8 * s)) : 0;
   const out: Partial<CloneTextField> = { ...box, fontSize, weight };
-  if (a.inkColor) out.color = `#${hex2(a.inkColor[0])}${hex2(a.inkColor[1])}${hex2(a.inkColor[2])}`;
+  if (a.inkColor) out.color = hex(a.inkColor);
   return out;
 }

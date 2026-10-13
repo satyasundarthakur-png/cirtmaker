@@ -45,7 +45,6 @@ import {
   batchExport,
   download,
   exportWith,
-  fileSafe,
   type BatchFormat,
 } from "@/features/certmaker/lib/exporter";
 import {
@@ -53,6 +52,7 @@ import {
   DPI_MIN,
   PROFILES,
   clampDpi,
+  fileSafe,
   pixelWidth,
   type ExportFormat,
   type ExportProfile,

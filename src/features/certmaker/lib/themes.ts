@@ -16,7 +16,7 @@ export interface Theme {
 
 const TAU = Math.PI * 2;
 
-export function corner(c: Ctx, x: number, y: number, sx: number, sy: number, color: string) {
+function corner(c: Ctx, x: number, y: number, sx: number, sy: number, color: string) {
   c.save();
   c.translate(x, y);
   c.scale(sx, sy);
@@ -195,19 +195,47 @@ const FALLBACK = `"Noto Sans Oriya", "Noto Sans Devanagari", sans-serif`;
 export const FONT_SETS: Record<FontSet, { label: string; stack: FontStack }> = {
   elegant: {
     label: "Elegant — Playfair + Great Vibes",
-    stack: { title: `"Playfair Display", ${FALLBACK}`, name: `"Great Vibes", "Playfair Display", ${FALLBACK}`, body: `"Cormorant Garamond", "Playfair Display", ${FALLBACK}`, titleWeight: 700, nameWeight: 400, bodyWeight: 500 },
+    stack: {
+      title: `"Playfair Display", ${FALLBACK}`,
+      name: `"Great Vibes", "Playfair Display", ${FALLBACK}`,
+      body: `"Cormorant Garamond", "Playfair Display", ${FALLBACK}`,
+      titleWeight: 700,
+      nameWeight: 400,
+      bodyWeight: 500,
+    },
   },
   classic: {
     label: "Classic — Cormorant Garamond",
-    stack: { title: `"Cormorant Garamond", ${FALLBACK}`, name: `"Cormorant Garamond", ${FALLBACK}`, body: `"Cormorant Garamond", ${FALLBACK}`, titleWeight: 700, nameWeight: 700, bodyWeight: 500 },
+    stack: {
+      title: `"Cormorant Garamond", ${FALLBACK}`,
+      name: `"Cormorant Garamond", ${FALLBACK}`,
+      body: `"Cormorant Garamond", ${FALLBACK}`,
+      titleWeight: 700,
+      nameWeight: 700,
+      bodyWeight: 500,
+    },
   },
   modern: {
     label: "Modern — Montserrat + Inter",
-    stack: { title: `"Montserrat", ${FALLBACK}`, name: `"Montserrat", ${FALLBACK}`, body: `"Inter", ${FALLBACK}`, titleWeight: 700, nameWeight: 600, bodyWeight: 400 },
+    stack: {
+      title: `"Montserrat", ${FALLBACK}`,
+      name: `"Montserrat", ${FALLBACK}`,
+      body: `"Inter", ${FALLBACK}`,
+      titleWeight: 700,
+      nameWeight: 600,
+      bodyWeight: 400,
+    },
   },
   noto: {
     label: "Odia / Hindi friendly — Noto",
-    stack: { title: `"Noto Sans Oriya", "Noto Sans Devanagari", sans-serif`, name: `"Noto Sans Oriya", "Noto Sans Devanagari", sans-serif`, body: `"Noto Sans Oriya", "Noto Sans Devanagari", sans-serif`, titleWeight: 700, nameWeight: 700, bodyWeight: 400 },
+    stack: {
+      title: `"Noto Sans Oriya", "Noto Sans Devanagari", sans-serif`,
+      name: `"Noto Sans Oriya", "Noto Sans Devanagari", sans-serif`,
+      body: `"Noto Sans Oriya", "Noto Sans Devanagari", sans-serif`,
+      titleWeight: 700,
+      nameWeight: 700,
+      bodyWeight: 400,
+    },
   },
 };
 

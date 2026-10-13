@@ -1,4 +1,5 @@
 import { fontCss, loadCloneImage, paintCloneFields } from "../clone";
+import { clamp, hex } from "../util";
 import type { CloneSource, CloneTextField } from "../types";
 import type { LayerStyle, StyleMatch } from "./types";
 import { AVAILABLE_FONTS } from "./CommandParser";
@@ -52,7 +53,6 @@ export interface TypographyMatchReport {
   components: FingerprintScore;
   uncertainties: string[];
 }
-const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, n));
 const mean = (v: number[]) => v.reduce((s, n) => s + n, 0) / Math.max(1, v.length);
 const quantile = (v: number[], q: number) => {
   if (!v.length) return 0;
@@ -62,14 +62,6 @@ const quantile = (v: number[], q: number) => {
     hi = Math.ceil(position);
   return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (position - lo);
 };
-const hex = (rgb: number[]) =>
-  `#${rgb
-    .map((v) =>
-      Math.round(clamp(v, 0, 255))
-        .toString(16)
-        .padStart(2, "0"),
-    )
-    .join("")}`;
 function runs(values: number[], test: (n: number) => boolean) {
   const out: { start: number; end: number }[] = [];
   let start = -1;

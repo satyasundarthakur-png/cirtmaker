@@ -13,7 +13,7 @@ export const AVAILABLE_FONTS = [
 ] as const;
 const finite = z.number().finite();
 const targets = z.array(z.string().min(1).max(100)).min(1).max(200).optional();
-export const styleSchema = z
+const styleSchema = z
   .object({
     font: z.enum(AVAILABLE_FONTS).optional(),
     fontSize: finite.min(1).max(4096).optional(),

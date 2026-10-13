@@ -1,4 +1,5 @@
 import { candidateNameIssue, logDetection } from "./clone-name-validation";
+import { byPosition } from "./util";
 /**
  * AI detection and consented text-only instruction transport for Clone Mode. Two providers: Google Gemini and Groq.
  *
@@ -433,8 +434,6 @@ export function parseAiResponse(
 }
 
 /* ---------- items -> fields ---------- */
-
-const byPosition = (a: CloneTextField, b: CloneTextField) => a.y - b.y || a.x - b.x;
 
 export function itemsToFields(
   items: AiItem[],

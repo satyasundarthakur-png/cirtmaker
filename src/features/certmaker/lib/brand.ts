@@ -17,7 +17,7 @@ export interface BrandKit {
 }
 
 const KEY = "certmaker:brands:v1";
-export const MAX_KITS = 12;
+const MAX_KITS = 12;
 
 export function kitFrom(d: CertData, name: string): BrandKit {
   return {
@@ -60,7 +60,14 @@ export function loadKits(): BrandKit[] {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(KEY) ?? "[]");
     return Array.isArray(v)
-      ? (v as BrandKit[]).filter((k) => !!k && typeof k === "object" && typeof k.id === "string" && Array.isArray(k.sigs) && Array.isArray(k.sigImgs))
+      ? (v as BrandKit[]).filter(
+          (k) =>
+            !!k &&
+            typeof k === "object" &&
+            typeof k.id === "string" &&
+            Array.isArray(k.sigs) &&
+            Array.isArray(k.sigImgs),
+        )
       : [];
   } catch {
     return [];

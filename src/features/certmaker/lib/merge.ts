@@ -173,7 +173,7 @@ const TEXT_FIELDS = [
   "sealText",
 ] as const;
 
-export function templateText(d: CertData): string {
+function templateText(d: CertData): string {
   if (d.cloneMode && d.clone) return d.clone.fields.map((f) => f.replacement).join("\n");
   return [...TEXT_FIELDS.map((k) => d[k]), ...d.sigs.flatMap((s) => [s.name, s.role])].join("\n");
 }

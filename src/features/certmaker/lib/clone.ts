@@ -1,4 +1,5 @@
 import { candidateNameIssue, logDetection } from "./clone-name-validation";
+import { byPosition, hex } from "./util";
 import { buildLines, detectFields, type Detected, type RawItem } from "./clone-detect";
 import { clampBox, clonePageMm, isCentered } from "./clone-geometry";
 import { fitFieldsToInk, type ErasePatch } from "./clone-erase-canvas";
@@ -264,8 +265,6 @@ export function paintCloneFields(
 export { loadCloneImage } from "./clone-image";
 import { loadCloneImage } from "./clone-image";
 
-const hex2 = (n: number) => n.toString(16).padStart(2, "0");
-
 /** Colour of one pixel of the original, chosen by the user clicking on it (the colour picker). */
 export async function samplePixel(src: string, x: number, y: number): Promise<string> {
   const img = await loadCloneImage(src);
@@ -276,7 +275,7 @@ export async function samplePixel(src: string, x: number, y: number): Promise<st
   if (!ctx) throw new Error("Canvas rendering is unavailable.");
   ctx.drawImage(img, Math.max(0, Math.floor(x)), Math.max(0, Math.floor(y)), 1, 1, 0, 0, 1, 1);
   const [r = 0, g = 0, b = 0] = ctx.getImageData(0, 0, 1, 1).data;
-  return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+  return hex([r, g, b]);
 }
 
 /* ---------- detection -> fields ---------- */
@@ -506,15 +505,13 @@ export async function loadClone(file: File): Promise<CloneSource> {
 /* ---------- editing operations (pure) ---------- */
 
 /** Template variable each kind of field is normally filled from. */
-export const KIND_VARIABLE: Record<CloneKind, string | null> = {
+const KIND_VARIABLE: Record<CloneKind, string | null> = {
   name: "name",
   certId: "certificate_id",
   date: "date",
   course: "course",
   custom: null,
 };
-
-const byPosition = (a: CloneTextField, b: CloneTextField) => a.y - b.y || a.x - b.x;
 
 export function nextIndex(c: CloneSource) {
   const nums = [...c.fields, ...c.suggestions].map((f) =>
