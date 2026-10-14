@@ -85,7 +85,7 @@ describe("selection-aware AI editing UI", () => {
       AIEditingEngine.plan(o.clone, o.selection, [{ type: "delete" }]),
     );
     fireEvent.click(
-      screen.getByLabelText("Use Gemini for every instruction, including edit, erase and add"),
+      screen.getByLabelText("Use Google Gemini for every instruction, including edit, erase and add"),
     );
     instruction("erase the selected writing");
     fireEvent.click(await screen.findByRole("button", { name: "Send and apply" }));
@@ -107,7 +107,7 @@ describe("selection-aware AI editing UI", () => {
       AIEditingEngine.plan(o.clone, o.selection, [{ type: "add", text: "New text" }]),
     );
     fireEvent.click(
-      screen.getByLabelText("Use Gemini for every instruction, including edit, erase and add"),
+      screen.getByLabelText("Use Google Gemini for every instruction, including edit, erase and add"),
     );
     fireEvent.click(
       screen.getByLabelText("Automatically apply AI plans only when layout checks have no warnings"),
