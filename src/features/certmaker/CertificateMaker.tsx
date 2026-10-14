@@ -7,6 +7,7 @@ import {
   QrCode,
   Trash2,
   Download,
+  FileImage,
   Image as ImageIcon,
   LayoutTemplate,
   Layers,
@@ -26,8 +27,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import CloneFields, { type PickTarget } from "@/features/certmaker/components/CloneFields";
-import { fitFieldsToInk } from "@/features/certmaker/lib/clone-erase-canvas";
+import { eraseCoverFor, fitFieldsToInk } from "@/features/certmaker/lib/clone-erase-canvas";
+import type { Box } from "@/features/certmaker/lib/clone-geometry";
 import {
+  addEraser,
   assignCandidateName,
   mergeFit,
   patchField,
@@ -168,6 +171,8 @@ export default function CertificateMaker() {
   }, [d.cloneMode, d.clone]);
   const [detectView, setDetectView] = useState<DetectView>("off");
   const [nameMsg, setNameMsg] = useState("");
+  const [eraser, setEraser] = useState(false);
+  const [eraserMsg, setEraserMsg] = useState("");
   const [tab, setTab] = useState<TabId>("templates");
   const [zoom, setZoom] = useState(1);
 
@@ -244,6 +249,14 @@ export default function CertificateMaker() {
     const text = current.fields.concat(current.suggestions).find((f) => f.id === id)?.original;
     setNameMsg(`"${text ?? ""}" is now the Candidate name.`);
   };
+  /** Hand eraser: fill the dragged rectangle with the paper colour around it. */
+  const eraseArea = async (box: Box) => {
+    const current = d.clone;
+    if (!current) return;
+    const cover = await eraseCoverFor(current, box).catch(() => "#ffffff");
+    editClone((c) => (c.image === current.image ? addEraser(c, box, cover).clone : c));
+    setEraserMsg("Erased. Drag again to erase more. Undo is in the toolbar (Ctrl+Z).");
+  };
   const cloneEdit: CloneEdit | undefined =
     d.cloneMode && d.clone
       ? {
@@ -258,6 +271,9 @@ export default function CertificateMaker() {
           },
           detectView,
           onAssignName: assignName,
+          eraser,
+          onErase: eraseArea,
+          onEraserDone: () => setEraser(false),
           onPixel: pick
             ? (x, y) => {
                 const target = pick;
@@ -480,23 +496,43 @@ export default function CertificateMaker() {
   };
 
   const exportButtons = (
-    <Button
-      variant="certificate"
-      size="certificate"
-      type="button"
-      className="btn btn-primary"
-      disabled={!!busy || (d.cloneMode && !d.clone)}
-      onClick={() =>
-        run("export", async () => {
-          const r = await exportWith(shown, { format, dpi, quality });
-          download(r.blob, `${slug}.${r.ext}`);
-          registerIssued([shown]);
-          setRegister(loadRegister());
-        })
-      }
-    >
-      <Download aria-hidden /> {busy === "export" ? "Preparing…" : `Export ${exportLabel}`}
-    </Button>
+    <>
+      <Button
+        variant="certificate"
+        size="certificate"
+        type="button"
+        className="btn"
+        title="Save the certificate as a PNG image"
+        disabled={!!busy || (d.cloneMode && !d.clone)}
+        onClick={() =>
+          run("export", async () => {
+            const r = await exportWith(shown, { format: "png", dpi, quality: 1 });
+            download(r.blob, `${slug}.${r.ext}`);
+            registerIssued([shown]);
+            setRegister(loadRegister());
+          })
+        }
+      >
+        <FileImage aria-hidden /> Save image
+      </Button>
+      <Button
+        variant="certificate"
+        size="certificate"
+        type="button"
+        className="btn btn-primary"
+        disabled={!!busy || (d.cloneMode && !d.clone)}
+        onClick={() =>
+          run("export", async () => {
+            const r = await exportWith(shown, { format, dpi, quality });
+            download(r.blob, `${slug}.${r.ext}`);
+            registerIssued([shown]);
+            setRegister(loadRegister());
+          })
+        }
+      >
+        <Download aria-hidden /> {busy === "export" ? "Preparing…" : `Export ${exportLabel}`}
+      </Button>
+    </>
   );
 
   return (
@@ -717,6 +753,12 @@ export default function CertificateMaker() {
                     onDetectView={setDetectView}
                     onAssignName={assignName}
                     nameMessage={nameMsg}
+                    eraser={eraser}
+                    onEraser={(on) => {
+                      setEraser(on);
+                      if (!on) setEraserMsg("");
+                    }}
+                    eraserMessage={eraserMsg}
                   />
                 ) : (
                   <p className="text-sm text-muted">Upload an original certificate first.</p>

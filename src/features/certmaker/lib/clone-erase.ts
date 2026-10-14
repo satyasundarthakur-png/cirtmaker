@@ -492,3 +492,31 @@ export function fitToInk(
   if (a.inkColor) out.color = hex(a.inkColor);
   return out;
 }
+
+/**
+ * Colour of the paper just outside `box` (the median of a thin ring around it, per channel). A flat patch of this
+ * colour makes the erased area disappear into the page. `px` covers the box plus its ring, and `box` is relative
+ * to `px`. Null when there is not enough paper around the box to judge.
+ */
+export function ringColor(px: Pixels, box: Box, ring: number): [number, number, number] | null {
+  const r: number[] = [];
+  const g: number[] = [];
+  const b: number[] = [];
+  const x0 = box.x - ring;
+  const y0 = box.y - ring;
+  const x1 = box.x + box.w + ring;
+  const y1 = box.y + box.h + ring;
+  for (let y = Math.max(0, Math.floor(y0)); y < Math.min(px.height, Math.ceil(y1)); y++) {
+    for (let x = Math.max(0, Math.floor(x0)); x < Math.min(px.width, Math.ceil(x1)); x++) {
+      if (x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h) continue;
+      const i = (y * px.width + x) * 4;
+      if (px.data[i + 3]! < 128) continue;
+      r.push(px.data[i]!);
+      g.push(px.data[i + 1]!);
+      b.push(px.data[i + 2]!);
+    }
+  }
+  if (r.length < 12) return null;
+  const mid = (v: number[]) => v.sort((a, c) => a - c)[Math.floor(v.length / 2)]!;
+  return [mid(r), mid(g), mid(b)];
+}

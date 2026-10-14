@@ -41,7 +41,9 @@ const rowOf = (f: CloneTextField, listed: "field" | "other"): DetectionRow => {
 /** Every region the detector produced, accepted or not, for the debug table and overlay. */
 export function detectionRows(clone: CloneSource): DetectionRow[] {
   return [
-    ...clone.fields.filter((f) => !f.deleted).map((f) => rowOf(f, "field")),
+    ...clone.fields
+      .filter((f) => !f.deleted && f.detection?.rawKind !== "eraser")
+      .map((f) => rowOf(f, "field")),
     ...clone.suggestions.map((f) => rowOf(f, "other")),
   ];
 }

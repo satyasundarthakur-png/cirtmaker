@@ -4,6 +4,8 @@ import { dragBox, nudgeBox, type Handle } from "../lib/clone-geometry";
 import type { CloneSource, CloneTextField } from "../lib/types";
 import type { DetectView } from "../lib/clone-debug";
 import DetectionLayer from "./DetectionLayer";
+import EraserLayer from "./EraserLayer";
+import type { Box } from "../lib/clone-geometry";
 
 interface Props {
   clone: CloneSource;
@@ -16,6 +18,9 @@ interface Props {
   onRemove: (id: string) => void;
   detectView?: DetectView | undefined;
   onAssignName?: ((id: string) => void) | undefined;
+  eraser?: boolean | undefined;
+  onErase?: ((box: Box) => void) | undefined;
+  onEraserDone?: (() => void) | undefined;
 }
 
 const HANDLES: { h: Exclude<Handle, "move">; cls: string; cursor: string }[] = [
@@ -53,6 +58,9 @@ export default function CloneOverlay({
   onRemove,
   detectView = "off",
   onAssignName,
+  eraser = false,
+  onErase,
+  onEraserDone,
 }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -159,7 +167,7 @@ export default function CloneOverlay({
                 width: `${(f.w / clone.width) * 100}%`,
                 height: `${(f.h / clone.height) * 100}%`,
                 transform: `rotate(${f.rotation ?? 0}deg)`,
-                ...(detectView === "pickName" ? { pointerEvents: "none" as const } : {}),
+                ...(detectView === "pickName" || eraser ? { pointerEvents: "none" as const } : {}),
               }}
               onPointerDown={(e) => begin(e, f, "move")}
               onPointerMove={move}
@@ -232,6 +240,9 @@ export default function CloneOverlay({
             </div>
           );
         })}
+      {eraser && onErase && (
+        <EraserLayer clone={clone} onErase={onErase} onDone={onEraserDone ?? (() => undefined)} />
+      )}
       {detectView !== "off" && (
         <DetectionLayer clone={clone} view={detectView} onAssignName={onAssignName} />
       )}

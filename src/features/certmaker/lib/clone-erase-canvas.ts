@@ -1,7 +1,15 @@
 import { candidateNameIssue, logDetection } from "./clone-name-validation";
 import { authorizedText } from "./editing/SelectionManager";
 import { loadCloneImage } from "./clone-image";
-import { analyseInk, fitToInk, windowFor, type InkAnalysis, type Pixels } from "./clone-erase";
+import {
+  analyseInk,
+  fitToInk,
+  ringColor,
+  windowFor,
+  type InkAnalysis,
+  type Pixels,
+} from "./clone-erase";
+import { hex } from "./util";
 import type { Box } from "./clone-geometry";
 import type { CloneSource, CloneTextField } from "./types";
 
@@ -160,4 +168,24 @@ export async function fitFieldsToInk(clone: CloneSource, only?: string): Promise
     return { ...f, ...fit };
   });
   return { ...clone, fields };
+}
+
+/** Paper colour around a hand-drawn erase area, as #rrggbb. White when the area covers the whole page. */
+export async function eraseCoverFor(clone: CloneSource, box: Box): Promise<string> {
+  const img = await loadCloneImage(clone.image);
+  const sx = img.naturalWidth / clone.width;
+  const sy = img.naturalHeight / clone.height;
+  const ring = Math.max(3, Math.round(Math.min(img.naturalWidth, img.naturalHeight) * 0.006));
+  const bx = box.x * sx;
+  const by = box.y * sy;
+  const bw = box.w * sx;
+  const bh = box.h * sy;
+  const x0 = Math.max(0, Math.floor(bx - ring));
+  const y0 = Math.max(0, Math.floor(by - ring));
+  const x1 = Math.min(img.naturalWidth, Math.ceil(bx + bw + ring));
+  const y1 = Math.min(img.naturalHeight, Math.ceil(by + bh + ring));
+  if (x1 <= x0 || y1 <= y0) return "#ffffff";
+  const px = readWindow(img, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  const c = ringColor(px, { x: bx - x0, y: by - y0, w: bw, h: bh }, ring);
+  return c ? hex(c) : "#ffffff";
 }

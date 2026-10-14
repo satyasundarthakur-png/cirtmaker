@@ -1,7 +1,7 @@
 import { candidateNameIssue, logDetection, manualNameIssue } from "./clone-name-validation";
 import { byPosition, hex } from "./util";
 import { buildLines, detectFields, type Detected, type RawItem } from "./clone-detect";
-import { clampBox, clonePageMm, isCentered } from "./clone-geometry";
+import { clampBox, clonePageMm, isCentered, type Box } from "./clone-geometry";
 import { fitFieldsToInk, type ErasePatch } from "./clone-erase-canvas";
 import { authorizedText } from "./editing/SelectionManager";
 import { fitCloneText } from "./clone-text-layout";
@@ -676,6 +676,40 @@ export function assignCandidateName(
       suggestions: c.suggestions.filter((f) => f.id !== id).map(demote),
     },
   };
+}
+
+/**
+ * Hand eraser: a rectangle the user dragged. It paints a flat patch of the surrounding paper colour and no text,
+ * so stray marks, a logo or an old signature disappear. Type into its card to put new text on the cleaned spot.
+ */
+export function addEraser(
+  c: CloneSource,
+  box: Box,
+  cover: string,
+): { clone: CloneSource; id: string } {
+  const b = clampBox(box, { w: c.width, h: c.height });
+  const id = `clone-${nextIndex(c)}`;
+  const field: CloneTextField = {
+    ...cloneField("", b.x, b.y, b.w, b.h, 0),
+    id,
+    kind: "custom",
+    label: "Erased area",
+    replacement: "",
+    fontSize: Math.max(8, Math.round(b.h * 0.7)),
+    erase: "patch",
+    cover,
+    redraw: true,
+    sourceBox: { ...b },
+    detection: {
+      source: "manual",
+      rawKind: "eraser",
+      rawText: "",
+      confidence: 100,
+      accepted: true,
+      reason: "erased by the user",
+    },
+  };
+  return { clone: { ...c, fields: [...c.fields, field] }, id };
 }
 
 /** A new text box in the middle of the page, for a spot the detector missed (e.g. a blank line on a template). */

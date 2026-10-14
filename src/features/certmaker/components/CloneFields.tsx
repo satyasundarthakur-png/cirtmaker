@@ -4,6 +4,7 @@ import {
   AlignLeft,
   AlignRight,
   Crosshair,
+  Eraser,
   Loader2,
   Plus,
   ScanText,
@@ -48,6 +49,9 @@ interface Props {
   onDetectView?: ((v: DetectView) => void) | undefined;
   onAssignName?: ((id: string) => void) | undefined;
   nameMessage?: string | undefined;
+  eraser?: boolean | undefined;
+  onEraser?: ((on: boolean) => void) | undefined;
+  eraserMessage?: string | undefined;
 }
 
 const FONTS = [
@@ -102,6 +106,9 @@ export default function CloneFields({
   onDetectView,
   onAssignName,
   nameMessage = "",
+  eraser = false,
+  onEraser,
+  eraserMessage = "",
 }: Props) {
   useEffect(() => {
     if (selected) document.getElementById(`card-${selected}`)?.scrollIntoView({ block: "nearest" });
@@ -158,6 +165,18 @@ export default function CloneFields({
         >
           <Plus aria-hidden /> Add text box
         </Button>
+        {onEraser && (
+          <Button
+            variant="certificate"
+            size="certificate"
+            type="button"
+            className="btn"
+            aria-pressed={eraser}
+            onClick={() => onEraser(!eraser)}
+          >
+            <Eraser aria-hidden /> {eraser ? "Stop erasing" : "Eraser"}
+          </Button>
+        )}
         <Button
           variant="certificate"
           size="certificate"
@@ -180,6 +199,14 @@ export default function CloneFields({
           Fit boxes to the writing
         </Button>
       </div>
+      {(eraser || eraserMessage) && (
+        <p role="status" className="text-xs text-muted">
+          {eraser
+            ? "Eraser on: drag over the part of the certificate to erase. It is filled with the paper colour around it. Press Esc or Stop erasing when done. "
+            : ""}
+          {eraserMessage}
+        </p>
+      )}
 
       <CloneAiPanel
         clone={clone}
