@@ -79,6 +79,43 @@ describe("selection-aware AI editing UI", () => {
     expect(instruct.mock.calls[0]![0].consent).toBe(true);
     expect(edit.mock.calls[0]![0](c).fields[0].replacement).toBe("Rabindra");
   });
+  it("can route edit, erase and add instructions through the selected AI provider", async () => {
+    const { c, edit } = setup();
+    const instruct = vi.spyOn(AIEditingEngine, "instruct").mockImplementation(async (o) =>
+      AIEditingEngine.plan(o.clone, o.selection, [{ type: "delete" }]),
+    );
+    fireEvent.click(
+      screen.getByLabelText("Use Gemini for every instruction, including edit, erase and add"),
+    );
+    instruction("erase the selected writing");
+    fireEvent.click(await screen.findByRole("button", { name: "Send and apply" }));
+    await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
+    expect(instruct.mock.calls[0]![0]).toMatchObject({
+      provider: "gemini",
+      consent: true,
+      instruction: "erase the selected writing",
+    });
+    expect(edit.mock.calls[0]![0](c).fields[0]).toMatchObject({
+      replacement: "",
+      deleted: true,
+      erase: "smart",
+    });
+  });
+  it("can require review before applying an AI plan", async () => {
+    setup();
+    vi.spyOn(AIEditingEngine, "instruct").mockImplementation(async (o) =>
+      AIEditingEngine.plan(o.clone, o.selection, [{ type: "add", text: "New text" }]),
+    );
+    fireEvent.click(
+      screen.getByLabelText("Use Gemini for every instruction, including edit, erase and add"),
+    );
+    fireEvent.click(
+      screen.getByLabelText("Automatically apply AI plans only when layout checks have no warnings"),
+    );
+    instruction("add new text below");
+    fireEvent.click(await screen.findByRole("button", { name: "Send for preview" }));
+    expect(await screen.findByRole("button", { name: "Accept edits" })).toBeEnabled();
+  });
   it("applies bulk alignment for several selected fields in one click", async () => {
     const c = source();
     c.fields.push(cloneField("Course", 400, 200, 200, 40, 1));
