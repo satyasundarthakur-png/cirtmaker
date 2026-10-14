@@ -37,6 +37,8 @@ export default function CloneAiEditor({
 }: Props) {
   const [instruction, setInstruction] = useState("");
   const [consent, setConsent] = useState(false);
+  const [useAiForEveryInstruction, setUseAiForEveryInstruction] = useState(false);
+  const [autoApplyAi, setAutoApplyAi] = useState(true);
   const [askConsent, setAskConsent] = useState(false);
   const [reference, setReference] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -88,8 +90,8 @@ export default function CloneAiEditor({
     setVisualPreview(false);
   }
   /** Safe, simple edits are applied at once (Undo is in the toolbar); anything with a warning waits for Accept. */
-  function finish(next: EditPlan): boolean {
-    if (next.warnings.length || !next.changes.length) return false;
+  function finish(next: EditPlan, allowAutomatic = true): boolean {
+    if (!allowAutomatic || next.warnings.length || !next.changes.length) return false;
     try {
       edit((c) => AIEditingEngine.apply(c, next));
       setPlan(null);
@@ -111,7 +113,7 @@ export default function CloneAiEditor({
   async function run(consentNow = consent) {
     let parsed: EditCommand[] | null;
     try {
-      parsed = CommandParser.local(instruction);
+      parsed = useAiForEveryInstruction ? null : CommandParser.local(instruction);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Enter an instruction.");
       return;
@@ -123,6 +125,10 @@ export default function CloneAiEditor({
     if (!parsed && !consentNow) {
       setAskConsent(true);
       setMessage("");
+      return;
+    }
+    if (!parsed && !apiKey.trim()) {
+      setMessage(`Add your ${PROVIDERS[provider].name} API key in AI settings first.`);
       return;
     }
     const captured = context;
@@ -148,7 +154,7 @@ export default function CloneAiEditor({
         setMessage("Selection, certificate or instruction changed. Press Apply again.");
         return;
       }
-      if (!finish(result)) show(result);
+      if (!finish(result, parsed !== null || autoApplyAi)) show(result);
     } catch (e) {
       if (mounted.current && !ctrl.signal.aborted)
         setMessage(e instanceof Error ? e.message : "AI editing failed.");
@@ -255,6 +261,35 @@ export default function CloneAiEditor({
           }
         }}
       />
+      <div className="grid gap-2 rounded border border-line p-2">
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={useAiForEveryInstruction}
+            disabled={busy}
+            onChange={(e) => {
+              setUseAiForEveryInstruction(e.target.checked);
+              setPlan(null);
+              setAskConsent(false);
+              setMessage("");
+            }}
+          />
+          <span>
+            Use {PROVIDERS[provider].name} for every instruction, including edit, erase and add
+          </span>
+        </label>
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={autoApplyAi}
+            disabled={busy || !useAiForEveryInstruction}
+            onChange={(e) => setAutoApplyAi(e.target.checked)}
+          />
+          <span>Automatically apply AI plans only when layout checks have no warnings</span>
+        </label>
+      </div>
       {askConsent && (
         <div role="alert" className="grid gap-2 rounded border border-line p-2">
           <p>
@@ -272,7 +307,7 @@ export default function CloneAiEditor({
                 void run(true);
               }}
             >
-              Send and apply
+              {autoApplyAi ? "Send and apply" : "Send for preview"}
             </Button>
             <Button variant="certificate" size="certificate" onClick={() => setAskConsent(false)}>
               Cancel
