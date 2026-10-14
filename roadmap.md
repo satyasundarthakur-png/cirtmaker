@@ -1,5 +1,5 @@
 # Deployment tasks
-- [ ] Add opt-in Groq/Gemini automatic edit, erase and add instructions in Clone Mode; verify provider and review flows.
+- [x] Add opt-in Groq/Gemini automatic edit, erase and add instructions in Clone Mode; verify provider and review flows.
 - [x] Add reviewed, device-only written commands for selected Clone Mode text fields and verify editing and exports.
 - [x] Fix Clone Mode field editing, token substitution, coordinate mapping and layout regressions; verify targeted tests and browser flows.
 - [x] Fix stale preview redraws and recover from rendering failures.
