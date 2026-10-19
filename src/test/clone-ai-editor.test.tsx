@@ -99,6 +99,18 @@ describe("selection-aware AI editing UI", () => {
       erase: "smart",
     });
   });
+  it("auto edit with AI applies the plan directly and never shows Accept", async () => {
+    const { c, edit } = setup();
+    vi.spyOn(AIEditingEngine, "instruct").mockImplementation(async (o) =>
+      AIEditingEngine.plan(o.clone, o.selection, [{ type: "replace", text: "Rabindra" }]),
+    );
+    fireEvent.click(screen.getByRole("radio", { name: /Auto edit with AI/ }));
+    instruction("write Rabindra");
+    fireEvent.click(await screen.findByRole("button", { name: "Send and apply" }));
+    await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
+    expect(edit.mock.calls[0]![0](c).fields[0].replacement).toBe("Rabindra");
+    expect(screen.queryByRole("button", { name: "Accept edits" })).not.toBeInTheDocument();
+  });
   it("can require review before applying an AI plan", async () => {
     setup();
     vi.spyOn(AIEditingEngine, "instruct").mockImplementation(async (o) =>
