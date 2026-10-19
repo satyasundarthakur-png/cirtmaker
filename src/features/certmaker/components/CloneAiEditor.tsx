@@ -39,6 +39,8 @@ export default function CloneAiEditor({
   const [consent, setConsent] = useState(false);
   const [useAiForEveryInstruction, setUseAiForEveryInstruction] = useState(false);
   const [autoApplyAi, setAutoApplyAi] = useState(true);
+  // One visible choice for the user: offline commands, AI auto-edit, or AI with review.
+  const mode = useAiForEveryInstruction ? (autoApplyAi ? "auto" : "review") : "device";
   const [askConsent, setAskConsent] = useState(false);
   const [reference, setReference] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -261,35 +263,49 @@ export default function CloneAiEditor({
           }
         }}
       />
-      <div className="grid gap-2 rounded border border-line p-2">
-        <label className="flex items-start gap-2">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={useAiForEveryInstruction}
-            disabled={busy}
-            onChange={(e) => {
-              setUseAiForEveryInstruction(e.target.checked);
-              setPlan(null);
-              setAskConsent(false);
-              setMessage("");
-            }}
-          />
-          <span>
-            Use {PROVIDERS[provider].name} for every instruction, including edit, erase and add
-          </span>
-        </label>
-        <label className="flex items-start gap-2">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={autoApplyAi}
-            disabled={busy || !useAiForEveryInstruction}
-            onChange={(e) => setAutoApplyAi(e.target.checked)}
-          />
-          <span>Automatically apply AI plans only when layout checks have no warnings</span>
-        </label>
-      </div>
+      <fieldset className="grid gap-2 rounded border border-line p-2" disabled={busy}>
+        <legend className="mb-1 font-semibold">AI editing mode</legend>
+        {(
+          [
+            [
+              "device",
+              "Offline commands only",
+              "Use the built-in commands. Nothing is sent to the AI provider.",
+            ],
+            [
+              "auto",
+              "Auto edit with AI",
+              `Send every instruction (edit, erase and add) to ${PROVIDERS[provider].name} and apply it automatically when layout checks pass.`,
+            ],
+            [
+              "review",
+              "Ask AI, review before applying",
+              `Send every instruction to ${PROVIDERS[provider].name} and show a preview you accept or reject.`,
+            ],
+          ] as const
+        ).map(([value, label, description]) => (
+          <label key={value} className="flex items-start gap-2">
+            <input
+              type="radio"
+              name="ai-editing-mode"
+              className="mt-0.5"
+              checked={mode === value}
+              onChange={() => {
+                setUseAiForEveryInstruction(value !== "device");
+                setAutoApplyAi(value !== "review");
+                setPlan(null);
+                setAskConsent(false);
+                setMessage("");
+              }}
+            />
+            <span>
+              {label}
+              <br />
+              <span className="text-muted">{description}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
       {askConsent && (
         <div role="alert" className="grid gap-2 rounded border border-line p-2">
           <p>
