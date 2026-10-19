@@ -84,9 +84,7 @@ describe("selection-aware AI editing UI", () => {
     const instruct = vi.spyOn(AIEditingEngine, "instruct").mockImplementation(async (o) =>
       AIEditingEngine.plan(o.clone, o.selection, [{ type: "delete" }]),
     );
-    fireEvent.click(
-      screen.getByLabelText("Use Google Gemini for every instruction, including edit, erase and add"),
-    );
+    fireEvent.click(screen.getByRole("radio", { name: /Auto edit with AI/ }));
     instruction("erase the selected writing");
     fireEvent.click(await screen.findByRole("button", { name: "Send and apply" }));
     await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
@@ -106,12 +104,7 @@ describe("selection-aware AI editing UI", () => {
     vi.spyOn(AIEditingEngine, "instruct").mockImplementation(async (o) =>
       AIEditingEngine.plan(o.clone, o.selection, [{ type: "add", text: "New text" }]),
     );
-    fireEvent.click(
-      screen.getByLabelText("Use Google Gemini for every instruction, including edit, erase and add"),
-    );
-    fireEvent.click(
-      screen.getByLabelText("Automatically apply AI plans only when layout checks have no warnings"),
-    );
+    fireEvent.click(screen.getByRole("radio", { name: /Ask AI, review before applying/ }));
     instruction("add new text below");
     fireEvent.click(await screen.findByRole("button", { name: "Send for preview" }));
     expect(await screen.findByRole("button", { name: "Accept edits" })).toBeEnabled();
